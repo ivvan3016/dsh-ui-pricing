@@ -62,7 +62,7 @@ function ModelRow(props: {
   )
 }
 
-/** One day's row: the label, the follow control, and the timeline. */
+/** One day's row: the label, the chain-link, and the timeline. */
 function DayRow(props: {
   day: Weekday
   segments: { start: string; end: string; multiplier: number }[]
@@ -72,8 +72,13 @@ function DayRow(props: {
   onChange(segments: { start: string; end: string; multiplier: number }[]): void
   onLink(followed: Weekday): void
   onUnlink(): void
+  /** The day currently being dragged (its chain icon is in flight). */
+  onDragStart(day: Weekday): void
+  onDragEnd(): void
 }) {
-  const { day, segments, followedBy, disabled, t, onChange, onLink, onUnlink } = props
+  const { day, segments, followedBy, disabled, t, onChange, onLink, onUnlink, onDragStart, onDragEnd } = props
+  const [dropTarget, setDropTarget] = useState(false)
+
   return (
     <div className={css.dayRow}>
       <div className={css.dayHead}>
@@ -83,20 +88,38 @@ function DayRow(props: {
           : null}
         {!disabled
           ? (
-            <select
-              className={css.followSelect}
-              value={followedBy ?? ''}
-              onChange={(event) => {
-                const value = event.target.value
-                if (value === '') onUnlink()
-                else onLink(value as Weekday)
+            <button
+              type="button"
+              className={clsx(css.chainButton, followedBy !== null && css.linked, dropTarget && css.dropTarget)}
+              title={followedBy === null
+                ? t('link.self')
+                : t('link.follows', { day: t(`day.${followedBy as Weekday}`) })}
+              draggable={followedBy === null}
+              onDragStart={(event) => {
+                if (followedBy !== null) return
+                event.dataTransfer.setData('text/plain', day)
+                event.dataTransfer.effectAllowed = 'link'
+                onDragStart(day)
+              }}
+              onDragEnd={() => { onDragEnd(); setDropTarget(false) }}
+              onDragOver={(event) => {
+                event.preventDefault()
+                if (followedBy === null) setDropTarget(true)
+              }}
+              onDragLeave={() => { setDropTarget(false) }}
+              onDrop={(event) => {
+                event.preventDefault()
+                setDropTarget(false)
+                const source = event.dataTransfer.getData('text/plain') as Weekday
+                if (source !== day) onLink(source)
+              }}
+              onClick={() => {
+                // A linked day's chain is a disconnect button.
+                if (followedBy !== null) onUnlink()
               }}
             >
-              <option value="">{t('link.self')}</option>
-              {WEEKDAYS.filter(other => other !== day).map(other => (
-                <option key={other} value={other}>{t('link.follows', { day: t(`day.${other}`) })}</option>
-              ))}
-            </select>
+              {followedBy === null ? '⛓' : '🔗'}
+            </button>
           )
           : null}
       </div>
@@ -116,6 +139,7 @@ export function PricingCard(props: PricingCardProps) {
   const state = props.usePricingCard(snapshot => snapshot)
   const [open, setOpen] = useState(false)
   const [newModel, setNewModel] = useState('')
+  const [draggingDay, setDraggingDay] = useState<Weekday | null>(null)
   if (!state.available) return null
   const blocked = !state.dirty || state.saving
   return (
@@ -196,11 +220,13 @@ export function PricingCard(props: PricingCardProps) {
                   day={day}
                   segments={effectiveDaySchedule(state.dayLinks, state.days, day).segments}
                   followedBy={state.dayLinks[day] ?? null}
-                  disabled={!state.writable}
+                  disabled={!state.writable || (draggingDay !== null && draggingDay !== day)}
                   t={t}
                   onChange={(segments) => { props.editDaySegments(day, segments) }}
                   onLink={(followed) => { props.linkDay(day, followed) }}
                   onUnlink={() => { props.unlinkDay(day) }}
+                  onDragStart={(source) => { setDraggingDay(source) }}
+                  onDragEnd={() => { setDraggingDay(null) }}
                 />
               ))}
             </section>

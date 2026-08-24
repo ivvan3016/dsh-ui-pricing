@@ -4,10 +4,15 @@
  * and multiplier), but the visual is a shared axis of ordered boundaries:
  * the sorted segment starts plus 24:00 form the boundary list, and each
  * interval between consecutive boundaries is one segment carrying the
- * multiplier of the segment that starts there. Dragging a boundary moves it;
- * clicking the axis inserts a boundary (splitting the segment that contains
- * the click); the remove button deletes a boundary (merging the two adjacent
- * intervals). Multipliers are edited per interval.
+ * multiplier of the segment that starts there.
+ *
+ * Interactions:
+ * - Click the axis to insert a boundary (splitting the segment at the click).
+ * - Drag a boundary handle to move it; dragging never inserts.
+ * - Click a boundary's × to remove it (merging the two adjacent intervals).
+ * - Edit a segment's multiplier directly in its always-visible input.
+ * A time ruler above the axis labels every 6 hours so the strip reads at a
+ * glance.
  */
 
 import { useRef, useState } from 'react'
@@ -76,7 +81,9 @@ function segmentsFrom(
   return segments
 }
 
-/** One draggable boundary handle (index 0 = day start, fixed; others movable). */
+/** One draggable boundary handle (index 0 = day start, fixed; others movable).
+ *  Dragging keeps a local preview position and commits once on release, so a
+ *  drag does not spam the settings store with intermediate values. */
 function Boundary(props: {
   index: number
   minutes: number
@@ -88,22 +95,42 @@ function Boundary(props: {
 }) {
   const { index, minutes, removable, disabled, label, onMove, onRemove } = props
   const [active, setActive] = useState(false)
+  const [preview, setPreview] = useState<number | null>(null)
+  const previewRef = useRef<number | null>(null)
+  const shown = preview ?? minutes
 
   return (
     <div
       className={clsx(css.handle, active && css.handleActive)}
-      style={{ left: `${minutes / 1440 * 100}%` }}
+      style={{ left: `${shown / 1440 * 100}%` }}
       onPointerDown={(event) => {
         if (disabled) return
         event.stopPropagation()
+        event.preventDefault()
         setActive(true)
+        setPreview(minutes)
+        previewRef.current = minutes
         const axis = event.currentTarget.parentElement as HTMLDivElement
         const move = (e: PointerEvent): void => {
           const rect = axis.getBoundingClientRect()
-          onMove(index, minutesFromEvent(e.clientX, rect))
+          const next = minutesFromEvent(e.clientX, rect)
+          setPreview(next)
+          previewRef.current = next
         }
-        const up = (): void => {
+        const up = (e: PointerEvent): void => {
+          // Suppress the axis click that would otherwise insert a boundary
+          // after a drag: swallow a click at the release point.
+          const at = { x: e.clientX, y: e.clientY }
+          window.addEventListener('click', (event) => {
+            if (Math.abs(event.clientX - at.x) < 2 && Math.abs(event.clientY - at.y) < 2) {
+              event.stopPropagation()
+            }
+          }, { once: true })
+          const committed = previewRef.current ?? minutes
           setActive(false)
+          setPreview(null)
+          previewRef.current = null
+          onMove(index, committed)
           window.removeEventListener('pointermove', move)
           window.removeEventListener('pointerup', up)
         }
@@ -111,7 +138,7 @@ function Boundary(props: {
         window.addEventListener('pointerup', up)
       }}
     >
-      <span className={css.handleLabel}>{label}</span>
+      <span className={css.handleLabel}>{formatClock(shown)}</span>
       {removable && !disabled
         ? (
           <button
@@ -128,7 +155,7 @@ function Boundary(props: {
   )
 }
 
-/** One interval between boundaries: its multiplier, editable on double-click. */
+/** One interval between boundaries: an always-editable multiplier input. */
 function Interval(props: {
   leftMinutes: number
   rightMinutes: number
@@ -137,41 +164,35 @@ function Interval(props: {
   onEdit(multiplier: number): void
 }) {
   const { leftMinutes, rightMinutes, multiplier, disabled, onEdit } = props
-  const [editing, setEditing] = useState(false)
   const [text, setText] = useState(String(multiplier))
 
   const commit = (): void => {
     const value = Number(text)
-    setEditing(false)
     if (Number.isFinite(value) && value >= 0) onEdit(value)
     else setText(String(multiplier))
   }
 
-  const width = Math.max((rightMinutes - leftMinutes) / 1440 * 100, 0.5)
+  const width = Math.max((rightMinutes - leftMinutes) / 1440 * 100, 3)
   return (
     <div
       className={clsx(css.segment, multiplier < 1 && css.segmentDiscount, multiplier > 1 && css.segmentPremium)}
       style={{ left: `${leftMinutes / 1440 * 100}%`, width: `${width}%` }}
-      onDoubleClick={() => { if (!disabled) { setText(String(multiplier)); setEditing(true) } }}
+      onClick={(event) => { event.stopPropagation() }}
     >
-      {editing
-        ? (
-          <input
-            className={css.multiplierInput}
-            type="number"
-            min="0"
-            step="0.1"
-            value={text}
-            autoFocus
-            onChange={(event) => { setText(event.target.value) }}
-            onBlur={commit}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') commit()
-              if (event.key === 'Escape') setEditing(false)
-            }}
-          />
-        )
-        : <span className={css.multiplier}>×{multiplier}</span>}
+      <input
+        className={css.multiplierInput}
+        type="number"
+        min="0"
+        step="0.1"
+        value={text}
+        disabled={disabled}
+        aria-label={`multiplier ${formatClock(leftMinutes)}–${formatClock(rightMinutes)}`}
+        onChange={(event) => { setText(event.target.value) }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') { commit(); (event.target as HTMLInputElement).blur() }
+        }}
+      />
     </div>
   )
 }
@@ -185,9 +206,10 @@ export interface DayTimelineProps {
 }
 
 /**
- * Render one day's draggable timeline. The axis is a pointer surface: clicks
- * insert a boundary, handle drags move a boundary, and the × removes one.
- * The segments are rebuilt from the boundary list on every edit.
+ * Render one day's draggable timeline with a time ruler. The axis is a
+ * pointer surface: clicks insert a boundary, handle drags move a boundary
+ * (never inserting), and the × removes one. The segments are rebuilt from
+ * the boundary list on every edit.
  */
 export function DayTimeline({ segments, disabled, onChange }: DayTimelineProps) {
   const axisRef = useRef<HTMLDivElement>(null)
@@ -208,8 +230,12 @@ export function DayTimeline({ segments, disabled, onChange }: DayTimelineProps) 
 
   const moveBoundary = (index: number, minutes: number): void => {
     if (index === 0 || minutes === 0) return // the day start is fixed
+    // Clamp so boundaries never cross: keep strictly between neighbors.
+    const left = boundaries[index - 1] ?? 0
+    const right = boundaries[index + 1] ?? 1440
+    const clamped = Math.max(left + 60, Math.min(right - 60, minutes))
     const next = [...boundaries]
-    next[index] = minutes
+    next[index] = clamped
     next.sort((a, b) => a - b)
     onChange(segmentsFrom(next, multipliers))
   }
@@ -221,38 +247,49 @@ export function DayTimeline({ segments, disabled, onChange }: DayTimelineProps) 
     onChange(segmentsFrom(next, nextMultipliers))
   }
 
+  const rulerMarks = [0, 360, 720, 1080, 1320, 1440]
+
   return (
-    <div
-      ref={axisRef}
-      className={css.axis}
-      data-day-timeline
-      onClick={(event) => { insertBoundary(event.clientX) }}
-    >
-      {boundaries.map((minutes, index) => (
-        <Boundary
-          key={`b-${index}`}
-          index={index}
-          minutes={minutes}
-          removable={index > 0 && index < boundaries.length - 1}
-          disabled={disabled}
-          label={formatClock(minutes)}
-          onMove={moveBoundary}
-          onRemove={removeBoundary}
-        />
-      ))}
-      {boundaries.slice(0, -1).map((left, index) => (
-        <Interval
-          key={`i-${index}`}
-          leftMinutes={left}
-          rightMinutes={boundaries[index + 1]!}
-          multiplier={multipliers[index] ?? 1}
-          disabled={disabled}
-          onEdit={(multiplier) => {
-            const next = multipliers.map((m, i) => (i === index ? multiplier : m))
-            onChange(segmentsFrom(boundaries, next))
-          }}
-        />
-      ))}
+    <div className={css.wrap}>
+      <div className={css.ruler} aria-hidden>
+        {rulerMarks.map(minutes => (
+          <span key={minutes} className={css.rulerMark} style={{ left: `${minutes / 1440 * 100}%` }}>
+            {formatClock(minutes)}
+          </span>
+        ))}
+      </div>
+      <div
+        ref={axisRef}
+        className={css.axis}
+        data-day-timeline
+        onClick={(event) => { insertBoundary(event.clientX) }}
+      >
+        {boundaries.map((minutes, index) => (
+          <Boundary
+            key={`b-${index}`}
+            index={index}
+            minutes={minutes}
+            removable={index > 0 && index < boundaries.length - 1}
+            disabled={disabled}
+            label={formatClock(minutes)}
+            onMove={moveBoundary}
+            onRemove={removeBoundary}
+          />
+        ))}
+        {boundaries.slice(0, -1).map((left, index) => (
+          <Interval
+            key={`i-${index}`}
+            leftMinutes={left}
+            rightMinutes={boundaries[index + 1]!}
+            multiplier={multipliers[index] ?? 1}
+            disabled={disabled}
+            onEdit={(multiplier) => {
+              const next = multipliers.map((m, i) => (i === index ? multiplier : m))
+              onChange(segmentsFrom(boundaries, next))
+            }}
+          />
+        ))}
+      </div>
     </div>
   )
 }

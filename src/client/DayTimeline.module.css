@@ -1,11 +1,33 @@
-/* DayTimeline: a draggable 24-hour multiplier axis. */
+/* DayTimeline: a draggable 24-hour multiplier axis with a time ruler. */
+
+.wrap {
+  position: relative;
+  padding-top: 18px; /* room for the ruler */
+}
+
+.ruler {
+  position: relative;
+  height: 14px;
+  margin-bottom: 2px;
+}
+
+.rulerMark {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 9px;
+  line-height: 14px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
 
 .axis {
   position: relative;
   height: 34px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.3));
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--dsw-color-bg-input, rgba(128, 128, 128, 0.08));
+  background: var(--dsw-alias-bg-module-platform);
   touch-action: none;
   user-select: none;
 }
@@ -17,35 +39,43 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-right: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
-  background: var(--dsw-color-bg-container, rgba(128, 128, 128, 0.12));
-  cursor: pointer;
+  border-right: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-3);
   overflow: hidden;
 }
 
 .segmentDiscount {
-  background: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.18);
 }
 
 .segmentPremium {
-  background: rgba(249, 115, 22, 0.22);
-}
-
-.multiplier {
-  font-size: 11px;
-  pointer-events: none;
-  white-space: nowrap;
+  background: rgba(249, 115, 22, 0.18);
 }
 
 .multiplierInput {
-  width: 52px;
-  padding: 0 2px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.4));
+  width: 48px;
+  padding: 1px 2px;
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: var(--dsw-color-bg-input, #fff);
-  color: inherit;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
   font-size: 11px;
   text-align: center;
+}
+
+.multiplierInput:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.multiplierInput:focus {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: none;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.multiplierInput:disabled {
+  opacity: 0.6;
 }
 
 .handle {
@@ -66,11 +96,11 @@
   left: 4px;
   width: 2px;
   border-radius: 1px;
-  background: var(--dsw-color-primary, #4f6ef2);
+  background: var(--dsw-alias-brand-primary);
 }
 
 .handleActive::before {
-  background: var(--dsw-color-primary-hover, #3b5bdb);
+  background: var(--dsw-alias-label-primary);
   width: 4px;
   left: 3px;
 }
@@ -81,7 +111,8 @@
   left: 50%;
   transform: translateX(-50%);
   font-size: 9px;
-  opacity: 0.7;
+  line-height: 14px;
+  color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -94,12 +125,16 @@
   width: 14px;
   height: 14px;
   padding: 0;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.3));
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 50%;
-  background: var(--dsw-color-bg-container, #fff);
-  color: var(--dsw-color-danger-text, #b91c1c);
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-error);
   font-size: 10px;
   line-height: 1;
   cursor: pointer;
   z-index: 2;
+}
+
+.remove:hover {
+  border-color: var(--dsw-alias-label-error);
 }
