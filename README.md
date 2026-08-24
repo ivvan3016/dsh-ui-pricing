@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-User-configurable cost pricing for dsh: the `pricing` settings section (per-model list prices and per-day-of-week time segments with price multipliers) plus the per-session `cost` session projection that prices provider-reported usage with the multiplier in force at each sample's own timestamp. Nothing is hardcoded: the default section prices every day at the list price, and a Plugins-settings card lets you define your own time policy — drag boundaries on a 24-hour timeline per day, link days that share a schedule, set each segment's multiplier (1.0 is the list price, 0.5 halves it), and edit per-model prices.
+User-configurable cost pricing for dsh: the `pricing` settings section (per-model list prices and per-day-of-week time segments with price multipliers) plus the per-session `cost` session projection that prices provider-reported usage with the multiplier in force at each sample's own timestamp, and a composer-dock **CostLine** that shows the current session's spend and a live 24-hour multiplier strip. Nothing is hardcoded: the default section prices every day at the list price, and a Plugins-settings card lets you define your own time policy — drag boundaries on a 24-hour timeline per day, link days that share a schedule, set each segment's multiplier (1.0 is the list price, 0.5 halves it), and edit per-model prices.
 
 ## Install
 
@@ -45,6 +45,10 @@ The package registers the `pricing` settings namespace (see [dsh-settings](../..
 **Settings → Plugins → Plugin configuration** shows a **Pricing settings** card: a per-model price table (model rows are seeded from the wire `llm.providers()` discovery, so the deployment's actual models appear) and one draggable timeline per day of the week. On a timeline, drag a handle to move a boundary, click the axis to insert a new boundary, click × to remove one, and double-click a segment to edit its multiplier. The **follow** selector links a day to another day's schedule, so a shared pattern (e.g. a weekend that is off-peak all day) is configured once.
 
 The `cost` projection re-registers whenever the section changes, replaying the durable log under the new prices and windows.
+
+## Cost line
+
+When the composition provides the composer dock, the package registers a **cost** occupant that shows the current session's priced spend (from the `cost` projection) next to the current local time, the multiplier in force, and a 24-hour strip painted by multiplier band — discount (below list price), premium (above), or neutral (list price) — with a marker at the current minute. The section's Beijing-clock segments are shifted into the browser's timezone so the strip tracks the wall clock.
 
 ## Session projection
 
