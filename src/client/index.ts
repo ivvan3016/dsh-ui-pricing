@@ -1,13 +1,15 @@
 /**
- * Pricing settings plugin, browser half: registers the Plugins-settings card
- * that edits the `pricing` section — per-model list prices, per-day-of-week
- * time segments with price multipliers, and day links. The model rows are
- * seeded from the wire `llm.models()` catalog so the card covers the
- * deployment's actual models. The package issues no RPC beyond that read and
- * renders nothing outside the card.
+ * Pricing plugin, browser half: registers the Plugins-settings card that
+ * edits the `pricing` section — per-model list prices, per-day-of-week time
+ * segments with price multipliers, and day links — and the composer-dock
+ * CostLine that shows the session's priced spend and the live multiplier
+ * strip. The model rows are seeded from the wire `llm.models()` catalog so
+ * the card covers the deployment's actual models. The package issues no RPC
+ * beyond that read and renders nothing outside the card and the dock row.
  */
 import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
 // goes through the service, never a value import (client bundle purity gate).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -16,9 +18,12 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the settings.plugin.item SlotMap merge declared by the Plugins
 // configuration section (the card registers into that keyed slot).
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+// Type-only: the ui-conversation SlotMap merge (the composer.dock entry).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { PRICING_SETTINGS_NAMESPACE, type PricingSettings } from '../pricing.ts'
 import { PricingCardController } from './pricing-form.ts'
 import { PricingCard } from './PricingCard.tsx'
+import { CostLine } from './CostLine.tsx'
 import { en, NS, zh, type PricingKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -34,7 +39,7 @@ export const inject = ['slots', 'locale', 'settingsScope', 'connection']
 /**
  * Client plugin body: register the dictionaries, bind the settings scope,
  * wire the card controller to the connection's model discovery, and register
- * the Plugins card that edits the preferences.
+ * the Plugins card and the composer-dock CostLine that read the section.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -42,10 +47,26 @@ export function apply(ctx: ClientContext): void {
   const scope = ctx.settingsScope.bind<PricingSettings>({ namespace: PRICING_SETTINGS_NAMESPACE })
   const connection = ctx.get('connection') as ConnectionHandle
   const card = new PricingCardController(scope, connection.api)
+
+  // Identity-stable bare source over the mirrored section (the renderer binds
+  // usePricing once per source; undefined until the Host syncs the namespace).
+  const pricingSource: HostObservable<PricingSettings | undefined> = {
+    getSnapshot: () => scope.getSnapshot().value,
+    subscribe: listener => scope.subscribe(listener),
+  }
+
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: PRICING_SETTINGS_NAMESPACE,
     locale: NS,
     inject: () => card.inject(),
   }, PricingCard))
+
+  ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+    name: 'conversation.composer.dock',
+    id: 'cost',
+    order: 1,
+    locale: NS,
+    inject: () => ({ hooks: { pricing: pricingSource } }),
+  }, CostLine))
 }

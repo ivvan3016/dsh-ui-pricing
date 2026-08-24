@@ -1,0 +1,58 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.amount {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.tier {
+  font-variant-numeric: tabular-nums;
+}
+
+.strip {
+  position: relative;
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cellPeak {
+  flex: 1;
+  background: var(--dsw-alias-cost-peak);
+}
+
+.cellOffPeak {
+  flex: 1;
+  background: var(--dsw-alias-cost-off-peak);
+}
+
+.cellNeutral {
+  flex: 1;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.now {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-primary);
+  opacity: 0.85;
+}

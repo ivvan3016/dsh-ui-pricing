@@ -33,6 +33,7 @@ await build({
     '@deepseek-ai/dsh-settings',
     '@deepseek-ai/dsh-client-locale',
     '@deepseek-ai/dsh-client-runtime',
+    '@deepseek-ai/dsh-client-ui-conversation',
     '@deepseek-ai/dsh-client-ui-settings',
     '@deepseek-ai/dsh-client-ui-settings-plugins',
   ],

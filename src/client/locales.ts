@@ -42,6 +42,8 @@ export const zh = {
   'unsaved': '未保存',
   'saveFailed': '本部署没有接受这些值，已保留供你修改。',
   'models.unavailable': '无法读取模型列表。',
+  'tier.now': '{time} · ×{multiplier}',
+  'strip.aria': '24 小时分时倍率，当前 {time}',
 } as const
 
 /** English dictionary, key-identical to the Chinese source of truth. */
@@ -83,6 +85,8 @@ export const en: Record<PricingKey, string> = {
   'unsaved': 'Unsaved',
   'saveFailed': 'The deployment did not accept these values; they were left for you to correct.',
   'models.unavailable': 'Unable to load the model list.',
+  'tier.now': '{time} · ×{multiplier}',
+  'strip.aria': '24-hour time multipliers, now {time}',
 }
 
 /** Key domain of the `pricing` namespace (zh is the source of truth). */
