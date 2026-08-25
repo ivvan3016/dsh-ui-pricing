@@ -1,7 +1,7 @@
 {
   "name": "dsh-ui-pricing",
   "description": "User-configurable cost pricing for dsh: per-model list prices and per-day-of-week time segments with price multipliers, edited through a Plugins-settings card",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
