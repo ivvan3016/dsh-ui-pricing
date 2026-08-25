@@ -43,6 +43,10 @@ export const zh = {
   'models.unavailable': '无法读取模型列表。',
   'tier.now': '{time} · ×{multiplier}',
   'strip.aria': '24 小时分时倍率，当前 {time}',
+  'estimate.label': '估算',
+  'estimate.title': '费用为按用量与时段倍率估算的值；可在价格设置卡中手动补充已花费金额以校正。',
+  'field.manualSpend': '手动补充已花费',
+  'field.manualSpend.hint': '在自动估算之上追加的金额（例如补记其他会话的消耗）；显示的总费用为自动估算 + 此值，仅供参考。',
 } as const
 
 /** English dictionary, key-identical to the Chinese source of truth. */
@@ -85,6 +89,10 @@ export const en: Record<PricingKey, string> = {
   'models.unavailable': 'Unable to load the model list.',
   'tier.now': '{time} · ×{multiplier}',
   'strip.aria': '24-hour time multipliers, now {time}',
+  'estimate.label': 'estimate',
+  'estimate.title': 'The cost is an estimate from usage and time multipliers; add manual spend in the pricing card to correct it.',
+  'field.manualSpend': 'Manual spend',
+  'field.manualSpend.hint': 'Amount added on top of the auto estimate (e.g. to record other sessions); the shown total is auto + this value, for reference only.',
 }
 
 /** Key domain of the `pricing` namespace (zh is the source of truth). */

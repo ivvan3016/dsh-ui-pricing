@@ -41,14 +41,15 @@ The package registers the `pricing` settings namespace (see [dsh-settings](../..
 | `models` | V4 catalog | List prices per model id in currency units per one million tokens; a model with no entry is unpriced. Cache writes are billed at the cache-miss input rate (DeepSeek has no separate write price). |
 | `defaultSchedule` | one 00:00–24:00 segment at multiplier 1 | The default time policy every day uses unless overridden; a segment is an `HH:MM` window with a `multiplier`. A segment whose `end` is earlier than its `start` wraps midnight. |
 | `overrides` | `{}` | Per-day exceptions: a day present here uses its own `TimeSegment[]` instead of the default schedule. |
+| `manualSpend` | `0` | Manually-supplied spend added on top of the auto-computed projection (e.g. to record usage outside the current session); the shown total is auto + manual spend, labeled as an estimate. |
 
-**Settings → Plugins → Plugin configuration** shows a **Pricing settings** card: a per-model price table (model rows are seeded from the wire `llm.models()` catalog, so the deployment's actual models appear), one **default timeline** that applies to every day, and **day-exception toggles** — enabling a weekday gives it its own timeline that overrides the default (e.g. a weekend that is off-peak all day). On a timeline, click inside a segment to split it, drag a handle to move a boundary (dragging never inserts), click × to remove a boundary, and type each segment's multiplier directly.
+**Settings → Plugins → Plugin configuration** shows a **Pricing settings** card: a per-model price table (model rows are seeded from the wire `llm.models()` catalog, so the deployment's actual models appear), one **default timeline** that applies to every day, and **day-exception toggles** — enabling a weekday gives it its own timeline that overrides the default (e.g. a weekend that is off-peak all day). On a timeline, click inside a segment to split it, drag a handle to move a boundary (dragging never inserts), click × to remove a boundary, and type each segment's multiplier directly. A **manual spend** entry lets you correct the running total (for example to add usage from other sessions); it is added to the auto estimate and shown as part of the total.
 
 The `cost` projection re-registers whenever the section changes, replaying the durable log under the new prices and windows.
 
 ## Cost line
 
-When the composition provides the composer dock, the package registers a **cost** occupant that shows the current session's priced spend (from the `cost` projection) next to the current local time, the multiplier in force, and a 24-hour strip painted by multiplier band — discount (below list price), premium (above), or neutral (list price) — with a marker at the current minute. The section's Beijing-clock segments are shifted into the browser's timezone so the strip tracks the wall clock.
+When the composition provides the composer dock, the package registers a **cost** occupant that shows the current session's priced spend — the `cost` projection plus any `manualSpend`, with an "estimate" badge since it is computed from usage and multipliers, not a bill — next to the current local time, the multiplier in force, and a 24-hour strip painted by multiplier band — discount (below list price), premium (above), or neutral (list price) — with a marker at the current minute. The section's Beijing-clock segments are shifted into the browser's timezone so the strip tracks the wall clock.
 
 ## Session projection
 

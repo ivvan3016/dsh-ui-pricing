@@ -125,11 +125,19 @@ export const CostLine = memo(function CostLine({ useProjection, usePricing, t }:
     band: bandOf(multiplierAt(shiftedSettings, dayStartMs + hour * 3_600_000, localOffset)),
   }))
 
+  const manualSpend = settings.manualSpend ?? 0
+  const totalAmount = (cost?.amount ?? 0) + manualSpend
+  const currency = cost?.currency ?? settings.currency
+  const hasSpend = totalAmount > 0
+
   return (
     <div className={css.root} data-cost-line>
       <div className={css.top}>
-        {cost !== undefined && cost.amount > 0 && (
-          <span className={css.amount}>{formatCost(cost.amount, cost.currency)}</span>
+        {hasSpend && (
+          <span className={css.amount}>
+            {formatCost(totalAmount, currency)}
+            <span className={css.estimate} title={t('estimate.title')}>{t('estimate.label')}</span>
+          </span>
         )}
         <span className={css.tier}>{t('tier.now', {
           time: timeLabel, tier: `×${formatFactor(multiplier)}`, multiplier: formatFactor(multiplier),

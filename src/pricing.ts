@@ -79,6 +79,12 @@ export interface PricingSettings {
   defaultSchedule: DaySchedule
   /** Per-day overrides; a day present here uses its own segments. */
   overrides: Partial<Record<Weekday, DayOverride>>
+  /**
+   * Manually-supplied spend added on top of the auto-computed projection.
+   * Absent or 0 when the user has not corrected anything; the CostLine shows
+   * `auto + manualSpend` and labels the total as an estimate.
+   */
+  manualSpend?: number
 }
 
 /** A fresh day schedule: one all-day segment at the list price. */
@@ -98,6 +104,7 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
   },
   defaultSchedule: emptyDaySchedule(),
   overrides: {},
+  manualSpend: 0,
 }
 
 /** Beijing has no DST; the official peak window is defined in UTC+8. */

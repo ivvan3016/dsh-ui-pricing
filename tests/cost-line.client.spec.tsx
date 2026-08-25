@@ -112,6 +112,27 @@ describe('CostLine', () => {
     expect(screen.queryByText(/¥/)).toBeNull()
   })
 
+  it('adds manual spend on top of the auto estimate and labels the total as an estimate', () => {
+    const settings = { ...makeSettings(), manualSpend: 2 }
+    renderFrozen({ settings, cost: { amount: 1, currency: 'CNY' } })
+    expect(screen.getByText('¥3')).toBeTruthy()
+    const badge = screen.getByText(zh['estimate.label'])
+    expect(badge).toBeTruthy()
+    expect(badge.getAttribute('title')).toBe(zh['estimate.title'])
+  })
+
+  it('shows manual spend alone while nothing has been priced yet', () => {
+    const settings = { ...makeSettings(), manualSpend: 2 }
+    renderFrozen({ settings, cost: undefined })
+    expect(screen.getByText('¥2')).toBeTruthy()
+  })
+
+  it('hides the readout when auto plus manual spend is zero', () => {
+    const settings = { ...makeSettings(), manualSpend: 0 }
+    renderFrozen({ settings, cost: { amount: 0, currency: 'CNY' } })
+    expect(screen.queryByText(/¥/)).toBeNull()
+  })
+
   it('paints 24 hour cells in the expected multiplier bands and positions the now marker', () => {
     const settings = bandSettings(weekdayAt(NOW_MS, -new Date(NOW_MS).getTimezoneOffset()), 0.5)
     const { container } = renderFrozen({ settings })

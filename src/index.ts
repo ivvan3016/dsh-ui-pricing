@@ -51,6 +51,7 @@ export const PricingSettingsSchema: z<PricingSettings> = z.object({
   models: z.dict(ModelPriceSchema).default(DEFAULT_PRICING_SETTINGS.models),
   defaultSchedule: DayScheduleSchema.default(DEFAULT_PRICING_SETTINGS.defaultSchedule),
   overrides: z.dict(DayOverrideSchema).default(DEFAULT_PRICING_SETTINGS.overrides),
+  manualSpend: z.number().min(0).default(0),
 })
 
 /**

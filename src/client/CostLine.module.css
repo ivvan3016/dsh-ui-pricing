@@ -19,6 +19,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.estimate {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: help;
+}
+
 .tier {
   font-variant-numeric: tabular-nums;
 }
