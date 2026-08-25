@@ -9,7 +9,7 @@
  * world offset (the shared `minutesInDay` underflows for a UTC early-morning
  * instant in the western hemisphere).
  */
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   BEIJING_UTC_OFFSET_MINUTES, WEEKDAYS, formatClock, minutesInDay, multiplierAt,
@@ -18,11 +18,17 @@ import {
 } from '../src/pricing.ts'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { CostLine, formatAmount, formatCost, formatFactor, type CostLineProps } from '../src/client/CostLine.tsx'
+import {
+  CostLine, formatAmount, formatCost, formatFactor,
+  type CostCorrectionState, type CostLineProps,
+} from '../src/client/CostLine.tsx'
 import { zh } from '../src/client/locales.ts'
 
 // The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
 const t: CostLineProps['t'] = makeTranslate(zh, commonZh)
+
+/** Correction-write spy, reset per test. */
+const correctSpend = vi.fn()
 
 /** The `cost` projection value the component reads (mirrors the pricing plugin's type). */
 interface CostProjection {
@@ -80,17 +86,24 @@ function renderFrozen(over: Parameters<typeof makeProps>[0] = {}): ReturnType<ty
   return render(<CostLine {...makeProps(over)} />)
 }
 
-function makeProps(over: { settings?: PricingSettings | undefined; cost?: CostProjection | undefined } = {}): CostLineProps {
-  const { settings, cost } = over
+function makeProps(over: {
+  settings?: PricingSettings | undefined
+  cost?: CostProjection | undefined
+  writable?: boolean
+} = {}): CostLineProps {
+  const { settings, cost, writable = true } = over
   return {
     useProjection: (key: string) => (key === 'cost' ? cost : undefined),
     usePricing: ((selector: (value: PricingSettings | undefined) => unknown) => selector(settings)) as unknown as CostLineProps['usePricing'],
+    useCorrection: ((selector: (value: CostCorrectionState) => unknown) => selector({ writable })) as unknown as CostLineProps['useCorrection'],
+    correctSpend,
     t,
   }
 }
 
 afterEach(() => {
   cleanup()
+  correctSpend.mockClear()
   vi.useRealTimers()
 })
 
@@ -131,6 +144,39 @@ describe('CostLine', () => {
     const settings = { ...makeSettings(), manualSpend: 0 }
     renderFrozen({ settings, cost: { amount: 0, currency: 'CNY' } })
     expect(screen.queryByText(/¥/)).toBeNull()
+  })
+
+  it('clamps the display at zero when a downward correction exceeds the auto amount', () => {
+    const settings = { ...makeSettings(), manualSpend: -10 }
+    renderFrozen({ settings, cost: { amount: 1, currency: 'CNY' } })
+    expect(screen.queryByText(/¥/)).toBeNull()
+  })
+
+  it('lets the user correct the total in place and stores the difference as the delta', () => {
+    renderFrozen({ settings: makeSettings(), cost: { amount: 3, currency: 'CNY' } })
+    fireEvent.click(screen.getByRole('button', { name: '¥3' }))
+    const input = screen.getByLabelText(zh['correct.aria']) as HTMLInputElement
+    expect(input.value).toBe('3')
+    fireEvent.change(input, { target: { value: '5' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // The display equals the typed total: delta = 5 − auto 3 = 2.
+    expect(correctSpend).toHaveBeenCalledTimes(1)
+    expect(correctSpend).toHaveBeenCalledWith(2)
+    expect(screen.queryByLabelText(zh['correct.aria'])).toBeNull()
+  })
+
+  it('cancels an in-place edit on Escape without writing', () => {
+    renderFrozen({ settings: makeSettings(), cost: { amount: 3, currency: 'CNY' } })
+    fireEvent.click(screen.getByRole('button', { name: '¥3' }))
+    fireEvent.keyDown(screen.getByLabelText(zh['correct.aria']), { key: 'Escape' })
+    expect(correctSpend).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText(zh['correct.aria'])).toBeNull()
+  })
+
+  it('offers no correction entry while the section is read-only', () => {
+    renderFrozen({ settings: makeSettings(), cost: { amount: 3, currency: 'CNY' }, writable: false })
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByText('¥3')).toBeTruthy()
   })
 
   it('paints 24 hour cells in the expected multiplier bands and positions the now marker', () => {

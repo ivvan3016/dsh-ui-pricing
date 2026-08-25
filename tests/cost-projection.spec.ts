@@ -227,6 +227,22 @@ describe('pricing plugin', () => {
     expect(projectedCost(ctx, session).currency).toBe('CNY')
   })
 
+  it('sums every live session into the displayed total', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(IN_SEGMENT_MS)
+    const { ctx, session } = await harness(false)
+    const other = ctx.sessions.create()
+    appendStep(session, 1, 1, 'deepseek-v4-flash', {
+      inputTokens: 1_000_000, outputTokens: 0,
+    })
+    appendStep(other, 1, 1, 'deepseek-v4-flash', {
+      inputTokens: 1_000_000, outputTokens: 0,
+    })
+    // 3.0 per session at the list rate, summed → 6.0 on either session's view.
+    expect(projectedCost(ctx, session).amount).toBeCloseTo(6.0, 10)
+    expect(projectedCost(ctx, other).amount).toBeCloseTo(6.0, 10)
+  })
+
   it('reprices the log when the multiplier changes (re-registration refold)', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(IN_SEGMENT_MS)

@@ -49,15 +49,17 @@ export interface CostState {
 }
 
 /**
- * Cumulative billed cost for a complete session log, in currency units.
+ * The displayed spend: the auto-computed cost of every live session summed
+ * together, in currency units.
  *
  * The amount is computed by the host fold from provider-reported usage
  * samples, each priced at the multiplier in force at the sample's own
  * timestamp — so requests made during discounted hours are billed at the
- * discount rate even if the display is read at the list price.
+ * discount rate even if the display is read at the list price. The host
+ * sums each session's fold so the dock readout tracks the whole deployment.
  */
 export interface CostProjection {
-  /** Cumulative cost in currency units (0 before any priced usage). */
+  /** Cumulative cost across every live session, in currency units (0 before any priced usage). */
   amount: number
   /** Currency code the amount is denominated in. */
   currency: string
@@ -65,7 +67,7 @@ export interface CostProjection {
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
-    /** Cumulative billed cost, multiplier-at-sample-time applied, over the complete durable log. */
+    /** Every live session's priced spend summed together, multiplier-at-sample-time applied. */
     cost: CostProjection
   }
 

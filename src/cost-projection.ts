@@ -102,8 +102,11 @@ function totalsOf(byModel: Record<string, ModelRates>, model: string): ModelRate
 /**
  * Price the per-model totals with the captured settings: each multiplier
  * bucket prices at the model list price times that multiplier.
+ * @param state - the fold state to price.
+ * @param settings - the pricing policy in force.
+ * @returns the session's auto-computed cost in currency units.
  */
-function amountOf(state: CostState, settings: PricingSettings): number {
+export function amountOf(state: CostState, settings: PricingSettings): number {
   let amount = 0
   for (const [model, rates] of Object.entries(state.byModel)) {
     for (const entry of rates.byMultiplier) {
@@ -114,18 +117,22 @@ function amountOf(state: CostState, settings: PricingSettings): number {
 }
 
 /**
- * Build the `cost` projection unit for one pricing policy. The definition is
- * pure: `apply` and `view` are deterministic given the captured settings.
- * When the settings section changes, the plugin disposes this definition and
- * registers a fresh one (bumping `stateVersion`), so the fold replays the
- * durable log under the new policy.
+ * Build the `cost` projection unit for one pricing policy. The fold is pure:
+ * `apply` is deterministic given the captured settings. `view` reports the
+ * per-session amount unless an `aggregate` is supplied, in which case it
+ * reports the aggregate's total instead — the plugin uses that to surface the
+ * spend of every session summed together. When the settings section changes,
+ * the plugin disposes this definition and registers a fresh one (bumping
+ * `stateVersion`), so the fold replays the durable log under the new policy.
  * @param settings - the pricing policy in force for this definition.
  * @param stateVersion - version to invalidate persisted checkpoints from older policies.
+ * @param aggregate - optional total for the view; receives the current session's state and returns the displayed amount (default: this session's own amount).
  * @returns the unit definition.
  */
 export function costProjectionDefinition(
   settings: PricingSettings,
   stateVersion: number,
+  aggregate?: (state: CostState) => number,
 ): ProjectionDefinition<'cost', CostState> {
   return {
     key: 'cost',
@@ -173,7 +180,10 @@ export function costProjectionDefinition(
     },
     wire: {
       viewSchema: projectionSchema,
-      view: state => ({ amount: amountOf(state, settings), currency: settings.currency }),
+      view: state => ({
+        amount: aggregate === undefined ? amountOf(state, settings) : aggregate(state),
+        currency: settings.currency,
+      }),
     },
     stateVersion,
   }

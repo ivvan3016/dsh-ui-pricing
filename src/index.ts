@@ -1,24 +1,27 @@
 /**
  * Cost-display pricing plugin, host half: registers the durable `pricing`
- * settings section (per-model list prices, per-day-of-week time segments with
- * price multipliers, and day links) and the `cost` session projection unit
- * that prices provider-reported usage with the multiplier in force at each
- * sample's own timestamp.
+ * settings section (per-model list prices, a default per-day time policy with
+ * per-day exceptions, and a manual-spend correction delta) and the `cost`
+ * session projection unit that prices provider-reported usage with the
+ * multiplier in force at each sample's own timestamp and surfaces every live
+ * session's spend summed together.
  *
  * @module dsh-ui-pricing
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type { SessionStore } from '@deepseek-ai/dsh-session'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 // Type-only: activates the ctx.sessionProjections Context merge.
 import type {} from '@deepseek-ai/dsh-session-projection'
-import { costProjectionDefinition } from './cost-projection.ts'
+import { amountOf, costProjectionDefinition } from './cost-projection.ts'
 import {
   DEFAULT_PRICING_SETTINGS, PRICING_SETTINGS_NAMESPACE,
   type DayOverride, type DaySchedule, type PricingSettings, type TimeSegment,
 } from './pricing.ts'
+import type { CostState } from './projection.ts'
 
 export { PRICING_SETTINGS_NAMESPACE } from './pricing.ts'
 export * from './pricing.ts'
@@ -51,7 +54,7 @@ export const PricingSettingsSchema: z<PricingSettings> = z.object({
   models: z.dict(ModelPriceSchema).default(DEFAULT_PRICING_SETTINGS.models),
   defaultSchedule: DayScheduleSchema.default(DEFAULT_PRICING_SETTINGS.defaultSchedule),
   overrides: z.dict(DayOverrideSchema).default(DEFAULT_PRICING_SETTINGS.overrides),
-  manualSpend: z.number().min(0).default(0),
+  manualSpend: z.number().default(0),
 })
 
 /**
@@ -70,14 +73,29 @@ export function apply(ctx: Context): void {
 
   ctx.inject(['sessionProjections'], (projCtx) => {
     const settingsService = ctx.get('settings') as { get(ns: SettingsNamespace): unknown } | undefined
+    const sessions = ctx.get('sessions') as SessionStore | undefined
     let version = 0
     let dispose: (() => void) | undefined
     const install = (): void => {
       dispose?.()
       version += 1
       const section = settingsService?.get(NS) as PricingSettings | undefined
+      const settings = section ?? DEFAULT_PRICING_SETTINGS
+      // The view surfaces every live session's priced spend summed together,
+      // so the dock readout tracks the whole deployment, not one session.
+      // When no sessions service is composed, degrade to this session's own
+      // amount (the projection cannot run without sessions anyway).
+      const aggregate = (state: CostState): number => {
+        let total = amountOf(state, settings)
+        if (sessions === undefined) return total
+        for (const session of sessions.list()) {
+          const other = projCtx.sessionProjections.stateOf(session, 'cost') as CostState | undefined
+          if (other !== undefined && other !== state) total += amountOf(other, settings)
+        }
+        return total
+      }
       dispose = projCtx.sessionProjections.register(
-        costProjectionDefinition(section ?? DEFAULT_PRICING_SETTINGS, version),
+        costProjectionDefinition(settings, version, aggregate),
       )
     }
     install()

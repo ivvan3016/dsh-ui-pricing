@@ -34,16 +34,12 @@ export interface PricingCardState {
   modelsStatus: 'loading' | 'ready' | 'error'
   /** Model ids discovered from the wire, in provider order. */
   modelIds: string[]
-  /** Currency code. */
-  currency: string
   /** Per-model list prices keyed by model id. */
   models: Record<string, ModelPrice>
   /** The default schedule every day uses unless overridden. */
   defaultSchedule: DaySchedule
   /** Days with their own schedule (exceptions to the default). */
   overrides: Partial<Record<Weekday, DaySchedule>>
-  /** Manually-supplied spend added on top of the auto projection (0 when unset). */
-  manualSpend: number
 }
 
 /** The write actions the card's slot entry injects. */
@@ -54,8 +50,6 @@ export interface PricingCardActions {
   removeModel(id: string): void
   /** Set one price bucket of one model. */
   editModelPrice(model: string, bucket: 'inputPeak' | 'cacheHitPeak' | 'outputPeak', value: number): void
-  /** Set the manually-supplied spend. */
-  editManualSpend(value: number): void
   /** Set the default schedule's segments. */
   editDefaultSegments(segments: TimeSegment[]): void
   /** Add a per-day override for `day`, seeded from the default schedule. */
@@ -83,7 +77,6 @@ interface Draft {
   models: Record<string, ModelPrice>
   defaultSchedule: DaySchedule
   overrides: Partial<Record<Weekday, DaySchedule>>
-  manualSpend: number
 }
 
 /**
@@ -123,7 +116,6 @@ export class PricingCardController {
       addModel: (id) => { this.addModel(id) },
       removeModel: (id) => { this.removeModel(id) },
       editModelPrice: (model, bucket, value) => { this.editModelPrice(model, bucket, value) },
-      editManualSpend: (value) => { this.edit({ manualSpend: value }) },
       editDefaultSegments: (segments) => { this.edit({ defaultSchedule: { segments } }) },
       addOverride: (day) => { this.addOverride(day) },
       removeOverride: (day) => { this.removeOverride(day) },
@@ -141,7 +133,6 @@ export class PricingCardController {
       models: { ...(value.models ?? {}) },
       defaultSchedule: value.defaultSchedule ?? emptyDaySchedule(),
       overrides: { ...(value.overrides ?? {}) },
-      manualSpend: value.manualSpend ?? 0,
     }
   }
 
@@ -224,7 +215,6 @@ export class PricingCardController {
       await this.scope.set('models', this.draft.models)
       await this.scope.set('defaultSchedule', this.draft.defaultSchedule)
       await this.scope.set('overrides', this.draft.overrides)
-      await this.scope.set('manualSpend', this.draft.manualSpend)
       this.staged.clear()
     } catch {
       this.failed = true
@@ -251,11 +241,9 @@ export class PricingCardController {
       failed: this.failed,
       modelsStatus: this.modelsStatus,
       modelIds: this.modelIds,
-      currency: snapshot.value?.currency ?? DEFAULT_PRICING_SETTINGS.currency,
       models: this.draft.models,
       defaultSchedule: this.draft.defaultSchedule,
       overrides: this.draft.overrides,
-      manualSpend: this.draft.manualSpend,
     }
   }
 

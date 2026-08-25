@@ -44,9 +44,9 @@ export const zh = {
   'tier.now': '{time} · ×{multiplier}',
   'strip.aria': '24 小时分时倍率，当前 {time}',
   'estimate.label': '估算',
-  'estimate.title': '费用为按用量与时段倍率估算的值；可在价格设置卡中手动补充已花费金额以校正。',
-  'field.manualSpend': '手动补充已花费',
-  'field.manualSpend.hint': '在自动估算之上追加的金额（例如补记其他会话的消耗）；显示的总费用为自动估算 + 此值，仅供参考。',
+  'estimate.title': '总消费为按所有会话的用量与时段倍率估算的值；点击金额可直接修正。',
+  'correct.hint': '点击修正总消费：输入的值替换当前估算，之后的用量在此之上累加。',
+  'correct.aria': '修正后的总消费',
 } as const
 
 /** English dictionary, key-identical to the Chinese source of truth. */
@@ -90,9 +90,9 @@ export const en: Record<PricingKey, string> = {
   'tier.now': '{time} · ×{multiplier}',
   'strip.aria': '24-hour time multipliers, now {time}',
   'estimate.label': 'estimate',
-  'estimate.title': 'The cost is an estimate from usage and time multipliers; add manual spend in the pricing card to correct it.',
-  'field.manualSpend': 'Manual spend',
-  'field.manualSpend.hint': 'Amount added on top of the auto estimate (e.g. to record other sessions); the shown total is auto + this value, for reference only.',
+  'estimate.title': 'The total spend is an estimate from usage and time multipliers across all sessions; click the amount to correct it.',
+  'correct.hint': 'Click to correct the total spend: the typed value replaces the estimate and later usage accrues on top of it.',
+  'correct.aria': 'Corrected total spend',
 }
 
 /** Key domain of the `pricing` namespace (zh is the source of truth). */

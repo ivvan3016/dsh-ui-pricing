@@ -80,9 +80,12 @@ export interface PricingSettings {
   /** Per-day overrides; a day present here uses its own segments. */
   overrides: Partial<Record<Weekday, DayOverride>>
   /**
-   * Manually-supplied spend added on top of the auto-computed projection.
-   * Absent or 0 when the user has not corrected anything; the CostLine shows
-   * `auto + manualSpend` and labels the total as an estimate.
+   * Manual-spend correction delta, added to the auto-computed total shown by
+   * the CostLine. A positive value tops the estimate up (e.g. usage outside
+   * the priced windows), a negative one trims it; 0 or absent means no
+   * correction. The CostLine lets the user type the corrected TOTAL and
+   * stores the difference (`total - auto`) here, so the display reads
+   * `auto + manualSpend` and keeps accruing usage on top of the correction.
    */
   manualSpend?: number
 }

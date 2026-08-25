@@ -244,35 +244,6 @@
   cursor: default;
 }
 
-.manualSpend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.manualSpendCurrency {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.manualSpend input {
-  width: 120px;
-  padding: 4px 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 12px;
-}
-
-.manualSpend input:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
-}
-
 /* Day-exception toggles: pill buttons; an enabled day shows its override. */
 .dayToggles {
   display: flex;

@@ -167,26 +167,6 @@ export function PricingCard(props: PricingCardProps) {
                   </div>
                 )}
             </section>
-            {/* Manual spend correction */}
-            <section className={css.section}>
-              <h3 className={css.sectionTitle}>{t('field.manualSpend')}</h3>
-              <p className={css.hint}>{t('field.manualSpend.hint')}</p>
-              <div className={css.manualSpend}>
-                <span className={css.manualSpendCurrency}>{state.currency}</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  disabled={!state.writable}
-                  value={state.manualSpend > 0 ? state.manualSpend : ''}
-                  placeholder="0.00"
-                  onChange={(event) => {
-                    const value = Number(event.target.value)
-                    props.editManualSpend(Number.isFinite(value) && value >= 0 ? value : 0)
-                  }}
-                />
-              </div>
-            </section>
             {/* Default timeline */}
             <section className={css.section}>
               <h3 className={css.sectionTitle}>{t('section.default')}</h3>

@@ -1,11 +1,12 @@
 /**
  * Pricing plugin, browser half: registers the Plugins-settings card that
- * edits the `pricing` section — per-model list prices, per-day-of-week time
- * segments with price multipliers, and day links — and the composer-dock
- * CostLine that shows the session's priced spend and the live multiplier
- * strip. The model rows are seeded from the wire `llm.models()` catalog so
- * the card covers the deployment's actual models. The package issues no RPC
- * beyond that read and renders nothing outside the card and the dock row.
+ * edits the `pricing` section — per-model list prices, a default per-day
+ * time policy with per-day exceptions — and the composer-dock CostLine that
+ * shows every session's priced spend summed together (with an in-place
+ * correction entry) plus the live multiplier strip. The model rows are
+ * seeded from the wire `llm.models()` catalog so the card covers the
+ * deployment's actual models. The package issues no RPC beyond that read
+ * and renders nothing outside the card and the dock row.
  */
 import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
@@ -23,7 +24,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { PRICING_SETTINGS_NAMESPACE, type PricingSettings } from '../pricing.ts'
 import { PricingCardController } from './pricing-form.ts'
 import { PricingCard } from './PricingCard.tsx'
-import { CostLine } from './CostLine.tsx'
+import { CostLine, type CostCorrectionState } from './CostLine.tsx'
 import { en, NS, zh, type PricingKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -55,6 +56,23 @@ export function apply(ctx: ClientContext): void {
     subscribe: listener => scope.subscribe(listener),
   }
 
+  // Identity-stable writable flag for the CostLine correction entry (the
+  // settings snapshot reference is stable between changes, so the cached
+  // object only changes when the flag actually flips).
+  let correctionSnapshot: CostCorrectionState = { writable: scope.getSnapshot().writable }
+  const correctionSource: HostObservable<CostCorrectionState> = {
+    getSnapshot: () => {
+      const writable = scope.getSnapshot().writable
+      if (writable !== correctionSnapshot.writable) correctionSnapshot = { writable }
+      return correctionSnapshot
+    },
+    subscribe: listener => scope.subscribe(listener),
+  }
+
+  // The dock entry writes the correction delta (`corrected total − auto`);
+  // the CostLine computes it from the projection before calling.
+  const correctSpend = (delta: number): void => { void scope.set('manualSpend', delta) }
+
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: PRICING_SETTINGS_NAMESPACE,
@@ -67,6 +85,9 @@ export function apply(ctx: ClientContext): void {
     id: 'cost',
     order: 1,
     locale: NS,
-    inject: () => ({ hooks: { pricing: pricingSource } }),
+    inject: () => ({
+      hooks: { pricing: pricingSource, correction: correctionSource },
+      correctSpend,
+    }),
   }, CostLine))
 }
