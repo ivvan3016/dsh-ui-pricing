@@ -3,6 +3,7 @@
 .wrap {
   position: relative;
   padding-top: 18px; /* room for the ruler */
+  padding-bottom: 18px; /* room for the boundary remove buttons below the axis */
 }
 
 .ruler {
@@ -119,9 +120,9 @@
 
 .remove {
   position: absolute;
-  top: -14px;
+  top: 100%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, 4px);
   width: 14px;
   height: 14px;
   padding: 0;
