@@ -48,10 +48,6 @@ export interface DaySchedule {
   segments: TimeSegment[]
 }
 
-/** Days that share another day's schedule: `{ saturday: 'friday' }` means
- *  Saturday follows Friday's segments. The value is the followed day. */
-export type DayLinks = Partial<Record<Weekday, Weekday>>
-
 /** Peak prices for one model, in currency units per one million tokens. */
 export interface ModelPrice {
   /** Cache-miss input price (also covers cache writes, which DeepSeek bills at the miss rate). */
@@ -62,21 +58,37 @@ export interface ModelPrice {
   outputPeak: number
 }
 
-/** Durable pricing section: the per-day time policy plus the per-model table. */
+/** A day that overrides the default schedule: `{ segments }` when enabled. */
+export interface DayOverride {
+  /** The day's own segments, replacing the default schedule for that day. */
+  segments: TimeSegment[]
+}
+
+/**
+ * Durable pricing section: one default time policy plus per-day overrides.
+ * Most days share `defaultSchedule`; a day listed in `overrides` uses its own
+ * schedule instead. This replaces the earlier per-day + day-links model with
+ * the simpler "one global timeline, plus exceptions" shape.
+ */
 export interface PricingSettings {
   /** Currency code the prices are denominated in (default `CNY`). */
   currency: string
   /** List prices per model id; a model with no entry is unpriced. */
   models: Record<string, ModelPrice>
-  /** Per-day time segments; an empty day prices the whole day at the list price. */
-  days: Record<Weekday, DaySchedule>
-  /** Days that follow another day's schedule (shared segments, edited once). */
-  dayLinks: DayLinks
+  /** The default schedule every day uses unless overridden. */
+  defaultSchedule: DaySchedule
+  /** Per-day overrides; a day present here uses its own segments. */
+  overrides: Partial<Record<Weekday, DayOverride>>
 }
 
-/** The default pricing section: the V4 catalog list prices and no time
- *  policy — every day prices at the list price until the user defines
- *  segments. Prices change; edit the section in Settings when they do. */
+/** A fresh day schedule: one all-day segment at the list price. */
+export function emptyDaySchedule(): DaySchedule {
+  return { segments: [{ start: '00:00', end: '24:00', multiplier: 1 }] }
+}
+
+/** The default pricing section: the V4 catalog list prices and a single
+ *  all-day segment at the list price — no time policy until the user splits
+ *  the day or adds overrides. Prices change; edit the section when they do. */
 export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
   currency: 'CNY',
   models: {
@@ -84,16 +96,8 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
     'deepseek-v4-pro': { inputPeak: 9.0, cacheHitPeak: 0.3, outputPeak: 27.0 },
     'deepseek-v4-flash-vision-exp': { inputPeak: 3.0, cacheHitPeak: 0.1, outputPeak: 9.0 },
   },
-  days: {
-    sunday: { segments: [] },
-    monday: { segments: [] },
-    tuesday: { segments: [] },
-    wednesday: { segments: [] },
-    thursday: { segments: [] },
-    friday: { segments: [] },
-    saturday: { segments: [] },
-  },
-  dayLinks: {},
+  defaultSchedule: emptyDaySchedule(),
+  overrides: {},
 }
 
 /** Beijing has no DST; the official peak window is defined in UTC+8. */
@@ -160,21 +164,15 @@ export function weekdayAt(epochMs: number, tzOffsetMinutes: number): Weekday {
 }
 
 /**
- * Resolve the schedule a day actually uses, following {@link DayLinks} chains.
+ * Resolve the schedule a day actually uses: its override when present,
+ * otherwise the default schedule.
  * @param settings - the pricing section.
  * @param day - the day to resolve.
- * @returns the effective schedule (the followed day's when linked).
+ * @returns the effective schedule (the day's override or the default).
  */
 export function effectiveSchedule(settings: PricingSettings, day: Weekday): DaySchedule {
-  const seen = new Set<Weekday>([day])
-  let current: Weekday = day
-  let followed = settings.dayLinks[current]
-  while (followed !== undefined && !seen.has(followed)) {
-    seen.add(followed)
-    current = followed
-    followed = settings.dayLinks[current]
-  }
-  return settings.days[current] ?? { segments: [] }
+  const override = settings.overrides[day]
+  return override !== undefined ? { segments: override.segments } : settings.defaultSchedule
 }
 
 /**
@@ -214,35 +212,40 @@ export function multiplierAt(
 }
 
 /**
- * Convert day schedules from the configured timezone into another fixed
+ * Convert the time policy from the configured timezone into another fixed
  * offset (the browser's local timezone), preserving the `HH:MM` vocabulary.
  * Each boundary shifts by the same offset, so segments keep their count and
  * may change their midnight-wrap behavior.
- * @param days - per-day schedules in the configured timezone.
+ * @param settings - the pricing section to shift.
  * @param sourceOffsetMinutes - the schedules' timezone offset.
  * @param targetOffsetMinutes - the target timezone offset.
- * @returns schedules expressed in the target timezone.
+ * @returns a settings copy with every schedule expressed in the target timezone.
  */
-export function schedulesInOffset(
-  days: Record<Weekday, DaySchedule>,
+export function settingsInOffset(
+  settings: PricingSettings,
   sourceOffsetMinutes: number,
   targetOffsetMinutes: number,
-): Record<Weekday, DaySchedule> {
+): PricingSettings {
   const shift = (clock: string): string => {
     const minutes = parseClock(clock)
     if (Number.isNaN(minutes)) return clock
     return formatClock((minutes - sourceOffsetMinutes + targetOffsetMinutes + 1440) % 1440)
   }
-  const result = {} as Record<Weekday, DaySchedule>
+  const shiftSchedule = (schedule: DaySchedule): DaySchedule => ({
+    segments: schedule.segments.map(segment => ({
+      start: shift(segment.start), end: shift(segment.end), multiplier: segment.multiplier,
+    })),
+  })
+  const overrides = {} as Partial<Record<Weekday, DayOverride>>
   for (const day of WEEKDAYS) {
-    const schedule = days[day]
-    result[day] = schedule === undefined
-      ? { segments: [] }
-      : { segments: schedule.segments.map(segment => ({
-        start: shift(segment.start), end: shift(segment.end), multiplier: segment.multiplier,
-      })) }
+    const override = settings.overrides[day]
+    if (override !== undefined) overrides[day] = shiftSchedule(override)
   }
-  return result
+  return {
+    ...settings,
+    defaultSchedule: shiftSchedule(settings.defaultSchedule),
+    overrides,
+  }
 }
 
 /**

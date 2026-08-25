@@ -226,74 +226,92 @@
   cursor: default;
 }
 
-.dayRow {
-  margin-top: 14px;
+/* Day-exception toggles: pill buttons; an enabled day shows its override. */
+.dayToggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
-.dayHead {
+.dayToggle {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+  background: none;
+  cursor: pointer;
+  transition: border-color .16s, color .16s, background .16s;
+}
+
+.dayToggle:hover:not(:disabled) {
+  border-color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dayToggleOn {
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-brand-primary);
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.dayToggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.overrideList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.overrideRow {
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.overrideHead {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
-.dayName {
-  min-width: 44px;
+.overrideName {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.5;
   color: var(--dsw-alias-label-primary);
 }
 
-.follows {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/* The chain button: drag it onto another day's chain to link the two days.
-   Linked days show a filled chain; the label names the followed day. */
-.chainButton {
+.removeOverride {
   appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
   margin-left: auto;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border: 0;
   background: none;
-  color: var(--dsw-alias-label-secondary);
-  cursor: grab;
-  font-size: 14px;
-  line-height: 1;
-  transition: border-color .16s, color .16s, background .16s;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-error);
+  cursor: pointer;
+  padding: 0;
 }
 
-.chainButton:hover {
-  border-color: var(--dsw-alias-label-dimmed);
-  color: var(--dsw-alias-label-primary);
+.removeOverride:hover:not(:disabled) {
+  text-decoration: underline;
 }
 
-.chainButton:active {
-  cursor: grabbing;
-}
-
-.chainButton.linked {
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-brand-primary);
-  border-color: var(--dsw-alias-brand-primary);
-}
-
-.chainButton.dragging {
-  opacity: 0.6;
-}
-
-.chainButton.dropTarget {
-  border-color: var(--dsw-alias-brand-primary);
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-bg-layer-3);
+.removeOverride:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .footer {
@@ -351,7 +369,7 @@
 
 .discard:focus-visible,
 .save:focus-visible,
-.chainButton:focus-visible {
+.dayToggle:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
 }

@@ -15,8 +15,7 @@ import { DEFAULT_PRICING_SETTINGS, type PricingSettings } from '../src/pricing.t
 function tuesdayPolicy(multiplier: number): PricingSettings {
   return {
     ...DEFAULT_PRICING_SETTINGS,
-    days: {
-      ...DEFAULT_PRICING_SETTINGS.days,
+    overrides: {
       tuesday: { segments: [{ start: '09:00', end: '12:00', multiplier }] },
     },
   }
@@ -223,7 +222,7 @@ describe('pricing plugin', () => {
     appendStep(session, 1, 1, 'deepseek-v4-flash', {
       inputTokens: 1_000_000, outputTokens: 0,
     })
-    // Defaults define no segments, so every sample prices at the list rate.
+    // Defaults define one all-day list-price segment, so every sample prices at the list rate.
     expect(projectedCost(ctx, session).amount).toBeCloseTo(3.0, 10)
     expect(projectedCost(ctx, session).currency).toBe('CNY')
   })
@@ -238,8 +237,7 @@ describe('pricing plugin', () => {
     expect(projectedCost(ctx, session).amount).toBeCloseTo(3.0, 10)
 
     await ctx.settings.update(settingsNamespace(PRICING_SETTINGS_NAMESPACE), {
-      days: {
-        ...DEFAULT_PRICING_SETTINGS.days,
+      overrides: {
         tuesday: { segments: [{ start: '09:00', end: '12:00', multiplier: 0.5 }] },
       },
     })
@@ -247,8 +245,7 @@ describe('pricing plugin', () => {
     expect(projectedCost(ctx, session).amount).toBeCloseTo(1.5, 10)
 
     await ctx.settings.update(settingsNamespace(PRICING_SETTINGS_NAMESPACE), {
-      days: {
-        ...DEFAULT_PRICING_SETTINGS.days,
+      overrides: {
         tuesday: { segments: [{ start: '09:00', end: '12:00', multiplier: 1 }] },
       },
     })

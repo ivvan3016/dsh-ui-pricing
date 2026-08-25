@@ -39,10 +39,10 @@ The package registers the `pricing` settings namespace (see [dsh-settings](../..
 |---|---|---|
 | `currency` | `CNY` | Currency code the prices are denominated in. |
 | `models` | V4 catalog | List prices per model id in currency units per one million tokens; a model with no entry is unpriced. Cache writes are billed at the cache-miss input rate (DeepSeek has no separate write price). |
-| `days` | all empty | Per-day-of-week `TimeSegment[]`; a segment is an `HH:MM` window with a `multiplier`. An empty day prices the whole day at the list price; a segment whose `end` is earlier than its `start` wraps midnight. |
-| `dayLinks` | `{}` | Days that share another day's schedule, e.g. `{ saturday: 'friday' }` makes Saturday follow Friday's segments. |
+| `defaultSchedule` | one 00:00–24:00 segment at multiplier 1 | The default time policy every day uses unless overridden; a segment is an `HH:MM` window with a `multiplier`. A segment whose `end` is earlier than its `start` wraps midnight. |
+| `overrides` | `{}` | Per-day exceptions: a day present here uses its own `TimeSegment[]` instead of the default schedule. |
 
-**Settings → Plugins → Plugin configuration** shows a **Pricing settings** card: a per-model price table (model rows are seeded from the wire `llm.providers()` discovery, so the deployment's actual models appear) and one draggable timeline per day of the week. On a timeline, drag a handle to move a boundary, click the axis to insert a new boundary, click × to remove one, and double-click a segment to edit its multiplier. The **follow** selector links a day to another day's schedule, so a shared pattern (e.g. a weekend that is off-peak all day) is configured once.
+**Settings → Plugins → Plugin configuration** shows a **Pricing settings** card: a per-model price table (model rows are seeded from the wire `llm.models()` catalog, so the deployment's actual models appear), one **default timeline** that applies to every day, and **day-exception toggles** — enabling a weekday gives it its own timeline that overrides the default (e.g. a weekend that is off-peak all day). On a timeline, click inside a segment to split it, drag a handle to move a boundary (dragging never inserts), click × to remove a boundary, and type each segment's multiplier directly.
 
 The `cost` projection re-registers whenever the section changes, replaying the durable log under the new prices and windows.
 
@@ -66,4 +66,4 @@ None; the fold only reads the cache-hit/cache-write token buckets providers repo
 
 - **Unlisted models price to zero** — a model id absent from the `models` table contributes nothing to the projection; add an entry (in the card) to price it.
 - **Timeline boundaries snap to whole hours** — dragging and clicking insert hour-aligned boundaries; minute-level segments must be edited in the settings document.
-- **Day links are one-way** — `dayLinks` makes one day follow another; there is no two-way group editing. Follow a day, edit it, and the followers update.
+- **Overrides are copies, not references** — enabling a day exception copies the default schedule at that moment; later edits to the default do not propagate into an existing exception.

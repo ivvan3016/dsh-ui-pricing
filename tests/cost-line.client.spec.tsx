@@ -13,8 +13,8 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   BEIJING_UTC_OFFSET_MINUTES, WEEKDAYS, formatClock, minutesInDay, multiplierAt,
-  parseClock, schedulesInOffset, weekdayAt,
-  type DayLinks, type DaySchedule, type PricingSettings, type TimeSegment, type Weekday,
+  parseClock, settingsInOffset, weekdayAt,
+  type DaySchedule, type PricingSettings, type TimeSegment, type Weekday,
 } from '../src/pricing.ts'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -34,15 +34,13 @@ interface CostProjection {
 const NOW_MS = Date.UTC(2026, 7, 18, 12, 17)
 
 /** Settings with no time policy: every day prices at the list price (multiplier 1). */
-function makeSettings(days: Partial<Record<Weekday, DaySchedule>> = {}, dayLinks: DayLinks = {}): PricingSettings {
-  const all: Record<Weekday, DaySchedule> = {}
-  for (const day of WEEKDAYS) all[day] = days[day] ?? { segments: [] }
-  return { currency: 'CNY', models: {}, days: all, dayLinks }
+function makeSettings(defaultSchedule: DaySchedule = { segments: [] }, overrides: Partial<Record<Weekday, DaySchedule>> = {}): PricingSettings {
+  return { currency: 'CNY', models: {}, defaultSchedule, overrides }
 }
 
 /**
  * A Beijing-clock segment that reads as a full local day (`00:00`–`23:59`,
- * every minute but the last) after `schedulesInOffset` shifts it into the
+ * every minute but the last) after `settingsInOffset` shifts it into the
  * given local offset — the whole-day band for a fixed multiplier.
  */
 function allDaySegment(multiplier: number, localOffset: number): TimeSegment {
@@ -54,7 +52,7 @@ function allDaySegment(multiplier: number, localOffset: number): TimeSegment {
 /** Settings pricing the whole local day at `multiplier` for one weekday. */
 function bandSettings(day: Weekday, multiplier: number): PricingSettings {
   const offset = -new Date(NOW_MS).getTimezoneOffset()
-  return makeSettings({ [day]: { segments: [allDaySegment(multiplier, offset)] } })
+  return makeSettings({ segments: [] }, { [day]: { segments: [allDaySegment(multiplier, offset)] } })
 }
 
 /** Expected facts for one instant, computed with the same helpers the component uses. */
@@ -65,10 +63,10 @@ function expectedFacts(settings: PricingSettings, nowMs: number): {
   markerPercent: number
 } {
   const offset = -new Date(nowMs).getTimezoneOffset()
-  const days = schedulesInOffset(settings.days, BEIJING_UTC_OFFSET_MINUTES, offset)
+  const shifted = settingsInOffset(settings, BEIJING_UTC_OFFSET_MINUTES, offset)
   const minutes = minutesInDay(nowMs, offset)
   return {
-    multiplier: multiplierAt({ ...settings, days }, nowMs, offset),
+    multiplier: multiplierAt(shifted, nowMs, offset),
     minutes,
     timeLabel: formatClock(minutes),
     markerPercent: minutes / 1440 * 100,

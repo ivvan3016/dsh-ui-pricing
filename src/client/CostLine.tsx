@@ -13,7 +13,7 @@
 
 import { memo, useEffect, useState } from 'react'
 import {
-  BEIJING_UTC_OFFSET_MINUTES, formatClock, minutesInDay, multiplierAt, schedulesInOffset,
+  BEIJING_UTC_OFFSET_MINUTES, formatClock, minutesInDay, multiplierAt, settingsInOffset,
   type PricingSettings,
 } from '../pricing.ts'
 import type { UseProjection } from '@deepseek-ai/dsh-client-runtime/client'
@@ -105,13 +105,10 @@ export const CostLine = memo(function CostLine({ useProjection, usePricing, t }:
   if (settings === undefined) return null
 
   const localOffset = -new Date(now).getTimezoneOffset()
-  // Shift every day's schedule into the browser's timezone, then read the
+  // Shift the whole time policy into the browser's timezone, then read the
   // multiplier through the shifted section so both the clock and the weekday
   // resolve in local time (`multiplierAt` derives both from the same offset).
-  const shiftedSettings = {
-    ...settings,
-    days: schedulesInOffset(settings.days, BEIJING_UTC_OFFSET_MINUTES, localOffset),
-  }
+  const shiftedSettings = settingsInOffset(settings, BEIJING_UTC_OFFSET_MINUTES, localOffset)
   const multiplier = multiplierAt(shiftedSettings, now, localOffset)
   const minutes = minutesInDay(now, localOffset)
   const timeLabel = formatClock(minutes)

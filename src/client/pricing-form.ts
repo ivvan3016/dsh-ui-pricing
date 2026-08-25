@@ -1,11 +1,11 @@
 /**
  * The pricing card's staged form over the `pricing` settings namespace:
- * model list prices, per-day time segments with multipliers, and day links.
- * The model list is seeded from the wire `llm.providers()` discovery so the
- * card covers whatever models the deployment actually has, while prices stay
- * editable per model. Booleans have no invalid draft, so the model mirrors
- * the plugin-configuration CardForm: staged edits, override markers by
- * user-layer presence, reset-as-clear, and one revision-fenced save.
+ * model list prices, the default per-day time policy (one global timeline),
+ * and per-day overrides. The model list is seeded from the wire `llm.models()`
+ * catalog so the card covers whatever models the deployment actually has,
+ * while prices stay editable per model. The form mirrors the
+ * plugin-configuration CardForm: staged edits, override markers by user-layer
+ * presence, reset-as-clear, and one revision-fenced save.
  */
 
 import type {
@@ -14,8 +14,8 @@ import type {
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  DEFAULT_PRICING_SETTINGS, WEEKDAYS,
-  type DayLinks, type DaySchedule, type ModelPrice, type PricingSettings, type TimeSegment, type Weekday,
+  DEFAULT_PRICING_SETTINGS, emptyDaySchedule, WEEKDAYS,
+  type DaySchedule, type ModelPrice, type PricingSettings, type TimeSegment, type Weekday,
 } from '../pricing.ts'
 
 /** The card's editable surface. */
@@ -38,36 +38,28 @@ export interface PricingCardState {
   currency: string
   /** Per-model list prices keyed by model id. */
   models: Record<string, ModelPrice>
-  /** Per-day schedules. */
-  days: Record<Weekday, DaySchedule>
-  /** Day links. */
-  dayLinks: DayLinks
+  /** The default schedule every day uses unless overridden. */
+  defaultSchedule: DaySchedule
+  /** Days with their own schedule (exceptions to the default). */
+  overrides: Partial<Record<Weekday, DaySchedule>>
 }
 
 /** The write actions the card's slot entry injects. */
 export interface PricingCardActions {
-  /** Set the currency code. */
-  editCurrency(currency: string): void
   /** Add one model row at the list price. */
   addModel(id: string): void
   /** Remove one model row. */
   removeModel(id: string): void
   /** Set one price bucket of one model. */
   editModelPrice(model: string, bucket: 'inputPeak' | 'cacheHitPeak' | 'outputPeak', value: number): void
-  /** Set the segments of one day. */
-  editDaySegments(day: Weekday, segments: TimeSegment[]): void
-  /** Add one segment to a day (a fresh multiplier 1.0 slice). */
-  addSegment(day: Weekday): void
-  /** Remove one segment of a day. */
-  removeSegment(day: Weekday, index: number): void
-  /** Move one segment boundary to a new clock time (drag). */
-  moveSegmentBoundary(day: Weekday, index: number, clock: string): void
-  /** Set one segment's multiplier. */
-  editSegmentMultiplier(day: Weekday, index: number, multiplier: number): void
-  /** Make `day` follow `followed` (shares its schedule). */
-  linkDay(day: Weekday, followed: Weekday): void
-  /** Make `day` independent again (copies the followed schedule). */
-  unlinkDay(day: Weekday): void
+  /** Set the default schedule's segments. */
+  editDefaultSegments(segments: TimeSegment[]): void
+  /** Add a per-day override for `day`, seeded from the default schedule. */
+  addOverride(day: Weekday): void
+  /** Remove the per-day override for `day`, reverting it to the default. */
+  removeOverride(day: Weekday): void
+  /** Set one override day's segments. */
+  editOverrideSegments(day: Weekday, segments: TimeSegment[]): void
   /** Write every staged edit, then re-seed from what the Host accepted. */
   save(): void
   /** Drop every staged edit. */
@@ -84,28 +76,9 @@ export interface PricingCardFace extends PricingCardActions {
 
 /** One staged settings section. */
 interface Draft {
-  currency: string
   models: Record<string, ModelPrice>
-  days: Record<Weekday, DaySchedule>
-  dayLinks: DayLinks
-}
-
-/** Day-link copy helper: the effective schedule of a day after links. */
-export function effectiveDaySchedule(dayLinks: DayLinks, days: Record<Weekday, DaySchedule>, day: Weekday): DaySchedule {
-  const seen = new Set<Weekday>([day])
-  let current: Weekday = day
-  let followed = dayLinks[current]
-  while (followed !== undefined && !seen.has(followed)) {
-    seen.add(followed)
-    current = followed
-    followed = dayLinks[current]
-  }
-  return days[current] ?? { segments: [] }
-}
-
-/** A fresh day schedule: one all-day segment at the list price. */
-export function emptyDaySchedule(): DaySchedule {
-  return { segments: [{ start: '00:00', end: '24:00', multiplier: 1 }] }
+  defaultSchedule: DaySchedule
+  overrides: Partial<Record<Weekday, DaySchedule>>
 }
 
 /**
@@ -142,17 +115,13 @@ export class PricingCardController {
   inject(): PricingCardFace {
     return {
       hooks: { pricingCard: this.store },
-      editCurrency: (currency) => { this.edit({ currency }) },
       addModel: (id) => { this.addModel(id) },
       removeModel: (id) => { this.removeModel(id) },
       editModelPrice: (model, bucket, value) => { this.editModelPrice(model, bucket, value) },
-      editDaySegments: (day, segments) => { this.edit({ days: { ...this.draft.days, [day]: { segments } } }) },
-      addSegment: (day) => { this.addSegment(day) },
-      removeSegment: (day, index) => { this.removeSegment(day, index) },
-      moveSegmentBoundary: (day, index, clock) => { this.moveSegmentBoundary(day, index, clock) },
-      editSegmentMultiplier: (day, index, multiplier) => { this.editSegmentMultiplier(day, index, multiplier) },
-      linkDay: (day, followed) => { this.linkDay(day, followed) },
-      unlinkDay: (day) => { this.unlinkDay(day) },
+      editDefaultSegments: (segments) => { this.edit({ defaultSchedule: { segments } }) },
+      addOverride: (day) => { this.addOverride(day) },
+      removeOverride: (day) => { this.removeOverride(day) },
+      editOverrideSegments: (day, segments) => { this.editOverrideSegments(day, segments) },
       save: () => { void this.save() },
       discard: () => { this.discard() },
     }
@@ -163,10 +132,9 @@ export class PricingCardController {
     const snapshot = this.scope.getSnapshot()
     const value = snapshot.value ?? DEFAULT_PRICING_SETTINGS
     return {
-      currency: value.currency,
       models: { ...(value.models ?? {}) },
-      days: Object.fromEntries(WEEKDAYS.map(day => [day, value.days?.[day] ?? emptyDaySchedule()])) as Record<Weekday, DaySchedule>,
-      dayLinks: { ...(value.dayLinks ?? {}) },
+      defaultSchedule: value.defaultSchedule ?? emptyDaySchedule(),
+      overrides: { ...(value.overrides ?? {}) },
     }
   }
 
@@ -219,68 +187,25 @@ export class PricingCardController {
     this.edit({ models: { ...this.draft.models, [model]: { ...current, [bucket]: value } } })
   }
 
-  private addSegment(day: Weekday): void {
-    const schedule = effectiveDaySchedule(this.draft.dayLinks, this.draft.days, day)
-    // Split the last segment at its midpoint, or append an all-day segment.
-    const segments = schedule.segments.length > 0
-      ? [...schedule.segments, { start: '00:00', end: '24:00', multiplier: 1 }]
-      : [emptyDaySchedule().segments[0]!]
-    this.setDaySegments(day, segments)
-  }
-
-  private removeSegment(day: Weekday, index: number): void {
-    const schedule = effectiveDaySchedule(this.draft.dayLinks, this.draft.days, day)
-    const segments = schedule.segments.filter((_, i) => i !== index)
-    this.setDaySegments(day, segments)
-  }
-
-  private moveSegmentBoundary(day: Weekday, index: number, clock: string): void {
-    const schedule = effectiveDaySchedule(this.draft.dayLinks, this.draft.days, day)
-    const segments = schedule.segments.map((segment, i) => (i === index ? { ...segment, end: clock } : segment))
-    this.setDaySegments(day, segments)
-  }
-
-  private editSegmentMultiplier(day: Weekday, index: number, multiplier: number): void {
-    const schedule = effectiveDaySchedule(this.draft.dayLinks, this.draft.days, day)
-    const segments = schedule.segments.map((segment, i) => (i === index ? { ...segment, multiplier } : segment))
-    this.setDaySegments(day, segments)
-  }
-
-  /** Write the day's segments into every day linked to it. */
-  private setDaySegments(day: Weekday, segments: TimeSegment[]): void {
-    const days = { ...this.draft.days }
-    for (const candidate of WEEKDAYS) {
-      if (this.follows(candidate, day, this.draft.dayLinks)) days[candidate] = { segments }
+  private addOverride(day: Weekday): void {
+    if (this.draft.overrides[day] !== undefined) return
+    const overrides = {
+      ...this.draft.overrides,
+      [day]: { segments: this.draft.defaultSchedule.segments.map(s => ({ ...s })) },
     }
-    this.edit({ days })
+    this.edit({ overrides })
   }
 
-  private follows(day: Weekday, target: Weekday, links: DayLinks): boolean {
-    const seen = new Set<Weekday>([day])
-    let current: Weekday = day
-    let followed = links[current]
-    while (followed !== undefined && !seen.has(followed)) {
-      seen.add(followed)
-      if (followed === target) return true
-      current = followed
-      followed = links[current]
-    }
-    return false
+  private removeOverride(day: Weekday): void {
+    const overrides = { ...this.draft.overrides }
+    delete overrides[day]
+    this.edit({ overrides })
   }
 
-  private linkDay(day: Weekday, followed: Weekday): void {
-    if (day === followed) return
-    // Copy the followed schedule so the day starts identical, then link.
-    const schedule = effectiveDaySchedule(this.draft.dayLinks, this.draft.days, followed)
-    const days = { ...this.draft.days, [day]: { segments: schedule.segments.map(s => ({ ...s })) } }
-    const dayLinks = { ...this.draft.dayLinks, [day]: followed }
-    this.edit({ days, dayLinks })
-  }
-
-  private unlinkDay(day: Weekday): void {
-    const dayLinks = { ...this.draft.dayLinks }
-    delete dayLinks[day]
-    this.edit({ dayLinks })
+  private editOverrideSegments(day: Weekday, segments: TimeSegment[]): void {
+    if (this.draft.overrides[day] === undefined) return
+    const overrides = { ...this.draft.overrides, [day]: { segments } }
+    this.edit({ overrides })
   }
 
   private async save(): Promise<void> {
@@ -289,10 +214,9 @@ export class PricingCardController {
     this.failed = false
     this.publish()
     try {
-      await this.scope.set('currency', this.draft.currency)
       await this.scope.set('models', this.draft.models)
-      await this.scope.set('days', this.draft.days)
-      await this.scope.set('dayLinks', this.draft.dayLinks)
+      await this.scope.set('defaultSchedule', this.draft.defaultSchedule)
+      await this.scope.set('overrides', this.draft.overrides)
       this.staged.clear()
     } catch {
       this.failed = true
@@ -319,10 +243,10 @@ export class PricingCardController {
       failed: this.failed,
       modelsStatus: this.modelsStatus,
       modelIds: this.modelIds,
-      currency: this.draft.currency,
+      currency: snapshot.value?.currency ?? DEFAULT_PRICING_SETTINGS.currency,
       models: this.draft.models,
-      days: this.draft.days,
-      dayLinks: this.draft.dayLinks,
+      defaultSchedule: this.draft.defaultSchedule,
+      overrides: this.draft.overrides,
     }
   }
 

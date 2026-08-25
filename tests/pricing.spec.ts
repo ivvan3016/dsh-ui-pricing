@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PRICING_SETTINGS, WEEKDAYS,
   effectiveSchedule, formatClock, inSegment, minutesInDay, multiplierAt, parseClock,
-  priceAt, sampleCost, schedulesInOffset, weekdayAt,
-  type DayLinks, type DaySchedule, type PricingSettings, type TimeSegment, type Weekday,
+  priceAt, sampleCost, settingsInOffset, weekdayAt,
+  type PricingSettings, type TimeSegment, type Weekday,
 } from '../src/pricing.ts'
 
 /** A timestamp at the given UTC clock on 2026-08-18 (a Tuesday). */
@@ -15,7 +15,7 @@ function at(utcHour: number, utcMinute = 0): number {
 function daySegment(day: Weekday, segment: TimeSegment): PricingSettings {
   return {
     ...DEFAULT_PRICING_SETTINGS,
-    days: { ...DEFAULT_PRICING_SETTINGS.days, [day]: { segments: [segment] } },
+    overrides: { [day]: { segments: [segment] } },
   }
 }
 
@@ -58,12 +58,18 @@ describe('multiplierAt', () => {
     expect(multiplierAt(settings, Date.UTC(2026, 7, 18, 17))).toBe(1) // 01:00 Beijing Wednesday
   })
 
-  it('prices an empty day at the list price all day', () => {
+  it('prices the default all-day segment at the list price all day', () => {
     expect(multiplierAt(DEFAULT_PRICING_SETTINGS, at(2))).toBe(1)
     expect(multiplierAt(DEFAULT_PRICING_SETTINGS, at(14))).toBe(1)
   })
 
-  it('applies a day segment only on its own day', () => {
+  it('prices an empty default schedule at the list price all day', () => {
+    const settings = { ...DEFAULT_PRICING_SETTINGS, defaultSchedule: { segments: [] } }
+    expect(multiplierAt(settings, at(2))).toBe(1)
+    expect(multiplierAt(settings, at(14))).toBe(1)
+  })
+
+  it('applies an override segment only on its own day', () => {
     const monday = daySegment('monday', { start: '09:00', end: '12:00', multiplier: 0.5 })
     expect(multiplierAt(monday, Date.UTC(2026, 7, 17, 2))).toBe(0.5) // Monday 10:00 Beijing
     expect(multiplierAt(monday, at(2))).toBe(1) // Tuesday 10:00: monday's segment inert
@@ -78,45 +84,36 @@ describe('multiplierAt', () => {
   })
 })
 
-describe('effectiveSchedule and dayLinks', () => {
-  const friday = { segments: [{ start: '09:00', end: '12:00', multiplier: 0.5 }] }
-  const monday = { segments: [{ start: '14:00', end: '18:00', multiplier: 2 }] }
-  const wednesday = { segments: [{ start: '22:00', end: '02:00', multiplier: 1.5 }] }
+describe('effectiveSchedule', () => {
+  const fridaySegments = [{ start: '09:00', end: '12:00', multiplier: 0.5 }]
 
-  function linked(days: Partial<Record<Weekday, DaySchedule>>, dayLinks: DayLinks): PricingSettings {
+  function withOverride(day: Weekday, segments: TimeSegment[]): PricingSettings {
     return {
       ...DEFAULT_PRICING_SETTINGS,
-      days: { ...DEFAULT_PRICING_SETTINGS.days, ...days },
-      dayLinks,
+      overrides: { [day]: { segments } },
     }
   }
 
-  it("returns the day's own schedule when it follows nothing", () => {
-    const settings = linked({ friday }, {})
-    expect(effectiveSchedule(settings, 'friday')).toEqual(friday)
+  it("returns a day's override when present", () => {
+    const settings = withOverride('friday', fridaySegments)
+    expect(effectiveSchedule(settings, 'friday')).toEqual({ segments: fridaySegments })
   })
 
-  it("returns the followed day's schedule", () => {
-    const settings = linked({ friday }, { saturday: 'friday' })
-    expect(effectiveSchedule(settings, 'saturday')).toEqual(friday)
+  it('uses an empty override instead of the default schedule', () => {
+    const settings = withOverride('friday', [])
+    expect(effectiveSchedule(settings, 'friday')).toEqual({ segments: [] })
   })
 
-  it('follows link chains to the end', () => {
-    const settings = linked({ friday }, { saturday: 'friday', sunday: 'saturday' })
-    expect(effectiveSchedule(settings, 'sunday')).toEqual(friday)
+  it('falls back to the default schedule for a day without an override', () => {
+    const settings = withOverride('friday', fridaySegments)
+    const schedule = effectiveSchedule(settings, 'monday')
+    expect(schedule).toBe(settings.defaultSchedule)
+    expect(schedule).toEqual(DEFAULT_PRICING_SETTINGS.defaultSchedule)
   })
 
-  it('terminates on link cycles and returns the last non-repeated day', () => {
-    const settings = linked({ monday, tuesday: { segments: [] }, wednesday }, {
-      monday: 'tuesday', tuesday: 'wednesday', wednesday: 'monday',
-    })
-    expect(effectiveSchedule(settings, 'monday')).toEqual(wednesday)
-    expect(effectiveSchedule(settings, 'tuesday')).toEqual(monday)
-  })
-
-  it('handles a self-link without looping', () => {
-    const settings = linked({ monday }, { monday: 'monday' })
-    expect(effectiveSchedule(settings, 'monday')).toEqual(monday)
+  it('defaults to one all-day list-price segment', () => {
+    expect(effectiveSchedule(DEFAULT_PRICING_SETTINGS, 'tuesday'))
+      .toEqual({ segments: [{ start: '00:00', end: '24:00', multiplier: 1 }] })
   })
 })
 
@@ -157,40 +154,57 @@ describe('clock helpers', () => {
   })
 })
 
-describe('schedulesInOffset', () => {
-  const days = {
-    ...DEFAULT_PRICING_SETTINGS.days,
-    tuesday: { segments: [{ start: '09:00', end: '12:00', multiplier: 0.5 }] },
+describe('settingsInOffset', () => {
+  const settings: PricingSettings = {
+    ...DEFAULT_PRICING_SETTINGS,
+    defaultSchedule: { segments: [{ start: '09:00', end: '12:00', multiplier: 1 }] },
+    overrides: {
+      tuesday: { segments: [{ start: '09:00', end: '12:00', multiplier: 0.5 }] },
+      friday: { segments: [{ start: '22:00', end: '02:00', multiplier: 2 }] },
+    },
   }
 
   it('keeps schedules identical in the source timezone', () => {
-    expect(schedulesInOffset(days, 480, 480)).toEqual(days)
+    expect(settingsInOffset(settings, 480, 480)).toEqual(settings)
   })
 
-  it('shifts segment boundaries by the offset difference and preserves multipliers', () => {
+  it('shifts the default schedule and every override, preserving multipliers', () => {
+    const shifted = settingsInOffset(settings, 480, 0)
     // Beijing 09:00 = UTC 01:00; Beijing 12:00 = UTC 04:00.
-    expect(schedulesInOffset(days, 480, 0).tuesday.segments)
+    expect(shifted.defaultSchedule.segments)
+      .toEqual([{ start: '01:00', end: '04:00', multiplier: 1 }])
+    expect(shifted.overrides.tuesday?.segments)
       .toEqual([{ start: '01:00', end: '04:00', multiplier: 0.5 }])
-    // Beijing 09:00 = UTC-5 20:00 (previous day).
-    expect(schedulesInOffset(days, 480, -300).tuesday.segments)
+    expect(shifted.overrides.friday?.segments)
+      .toEqual([{ start: '14:00', end: '18:00', multiplier: 2 }])
+  })
+
+  it('shifts westward across midnight boundaries', () => {
+    const shifted = settingsInOffset(settings, 480, -300)
+    // Beijing 09:00 = UTC-5 20:00 (previous day); Beijing 12:00 = 23:00.
+    expect(shifted.defaultSchedule.segments)
+      .toEqual([{ start: '20:00', end: '23:00', multiplier: 1 }])
+    expect(shifted.overrides.tuesday?.segments)
       .toEqual([{ start: '20:00', end: '23:00', multiplier: 0.5 }])
   })
 
-  it('covers every weekday and defaults missing days to empty', () => {
-    const shifted = schedulesInOffset(
-      { tuesday: days.tuesday } as Record<Weekday, DaySchedule>, 480, 0,
-    )
-    for (const day of WEEKDAYS) expect(shifted[day]).toBeDefined()
-    expect(shifted.monday.segments).toEqual([])
-    expect(shifted.tuesday.segments).toEqual([{ start: '01:00', end: '04:00', multiplier: 0.5 }])
+  it('keeps a settings copy with no overrides unchanged except the shifted default', () => {
+    const plain: PricingSettings = {
+      ...DEFAULT_PRICING_SETTINGS,
+      defaultSchedule: { segments: [] },
+      overrides: {},
+    }
+    const shifted = settingsInOffset(plain, 480, 0)
+    expect(shifted.overrides).toEqual({})
+    expect(shifted.defaultSchedule.segments).toEqual([])
   })
 
   it('leaves malformed clocks untouched', () => {
-    const malformed = {
-      ...DEFAULT_PRICING_SETTINGS.days,
-      tuesday: { segments: [{ start: 'oops', end: '12:00', multiplier: 0.5 }] },
+    const malformed: PricingSettings = {
+      ...DEFAULT_PRICING_SETTINGS,
+      overrides: { tuesday: { segments: [{ start: 'oops', end: '12:00', multiplier: 0.5 }] } },
     }
-    expect(schedulesInOffset(malformed, 480, 0).tuesday.segments)
+    expect(settingsInOffset(malformed, 480, 0).overrides.tuesday?.segments)
       .toEqual([{ start: 'oops', end: '04:00', multiplier: 0.5 }])
   })
 })

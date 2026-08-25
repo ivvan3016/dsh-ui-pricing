@@ -15,7 +15,7 @@
  * glance.
  */
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type MutableRefObject } from 'react'
 import clsx from 'clsx'
 import type { TimeSegment } from '../pricing.ts'
 import css from './DayTimeline.module.css'
@@ -83,17 +83,21 @@ function segmentsFrom(
 
 /** One draggable boundary handle (index 0 = day start, fixed; others movable).
  *  Dragging keeps a local preview position and commits once on release, so a
- *  drag does not spam the settings store with intermediate values. */
+ *  drag does not spam the settings store with intermediate values. The
+ *  `draggingRef` marks an in-flight drag so the axis click that browsers fire
+ *  after pointer release is suppressed (it would otherwise insert a
+ *  boundary — the "drag then insert" bug). */
 function Boundary(props: {
   index: number
   minutes: number
   removable: boolean
   disabled: boolean
   label: string
+  draggingRef: MutableRefObject<boolean>
   onMove(index: number, minutes: number): void
   onRemove(index: number): void
 }) {
-  const { index, minutes, removable, disabled, label, onMove, onRemove } = props
+  const { index, minutes, removable, disabled, label, draggingRef, onMove, onRemove } = props
   const [active, setActive] = useState(false)
   const [preview, setPreview] = useState<number | null>(null)
   const previewRef = useRef<number | null>(null)
@@ -110,6 +114,7 @@ function Boundary(props: {
         setActive(true)
         setPreview(minutes)
         previewRef.current = minutes
+        draggingRef.current = true
         const axis = event.currentTarget.parentElement as HTMLDivElement
         const move = (e: PointerEvent): void => {
           const rect = axis.getBoundingClientRect()
@@ -117,20 +122,15 @@ function Boundary(props: {
           setPreview(next)
           previewRef.current = next
         }
-        const up = (e: PointerEvent): void => {
-          // Suppress the axis click that would otherwise insert a boundary
-          // after a drag: swallow a click at the release point.
-          const at = { x: e.clientX, y: e.clientY }
-          window.addEventListener('click', (event) => {
-            if (Math.abs(event.clientX - at.x) < 2 && Math.abs(event.clientY - at.y) < 2) {
-              event.stopPropagation()
-            }
-          }, { once: true })
+        const up = (): void => {
           const committed = previewRef.current ?? minutes
           setActive(false)
           setPreview(null)
           previewRef.current = null
           onMove(index, committed)
+          // Keep the drag flag through the browser's click that follows the
+          // pointerup, then clear it on the next tick.
+          setTimeout(() => { draggingRef.current = false }, 0)
           window.removeEventListener('pointermove', move)
           window.removeEventListener('pointerup', up)
         }
@@ -155,7 +155,9 @@ function Boundary(props: {
   )
 }
 
-/** One interval between boundaries: an always-editable multiplier input. */
+/** One interval between boundaries: an always-editable multiplier input.
+ *  The cell itself lets clicks through to the axis (click = split), but the
+ *  input stops propagation so editing never splits. */
 function Interval(props: {
   leftMinutes: number
   rightMinutes: number
@@ -177,7 +179,6 @@ function Interval(props: {
     <div
       className={clsx(css.segment, multiplier < 1 && css.segmentDiscount, multiplier > 1 && css.segmentPremium)}
       style={{ left: `${leftMinutes / 1440 * 100}%`, width: `${width}%` }}
-      onClick={(event) => { event.stopPropagation() }}
     >
       <input
         className={css.multiplierInput}
@@ -187,6 +188,7 @@ function Interval(props: {
         value={text}
         disabled={disabled}
         aria-label={`multiplier ${formatClock(leftMinutes)}–${formatClock(rightMinutes)}`}
+        onClick={(event) => { event.stopPropagation() }}
         onChange={(event) => { setText(event.target.value) }}
         onBlur={commit}
         onKeyDown={(event) => {
@@ -213,10 +215,14 @@ export interface DayTimelineProps {
  */
 export function DayTimeline({ segments, disabled, onChange }: DayTimelineProps) {
   const axisRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef(false)
   const boundaries = boundariesOf(segments)
   const multipliers = boundaries.slice(0, -1).map((_, index) => multiplierAtBoundary(segments, index))
 
   const insertBoundary = (clientX: number): void => {
+    // A click that lands right after a handle drag is the browser's synthetic
+    // post-pointerup click — skip it, it is not a split intent.
+    if (draggingRef.current) return
     const axis = axisRef.current
     if (axis === null || disabled) return
     const minutes = minutesFromEvent(clientX, axis.getBoundingClientRect())
@@ -272,6 +278,7 @@ export function DayTimeline({ segments, disabled, onChange }: DayTimelineProps) 
             removable={index > 0 && index < boundaries.length - 1}
             disabled={disabled}
             label={formatClock(minutes)}
+            draggingRef={draggingRef}
             onMove={moveBoundary}
             onRemove={removeBoundary}
           />

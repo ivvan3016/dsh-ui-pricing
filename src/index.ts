@@ -16,8 +16,8 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { costProjectionDefinition } from './cost-projection.ts'
 import {
-  DEFAULT_PRICING_SETTINGS, PRICING_SETTINGS_NAMESPACE, WEEKDAYS,
-  type DayLinks, type DaySchedule, type PricingSettings, type TimeSegment,
+  DEFAULT_PRICING_SETTINGS, PRICING_SETTINGS_NAMESPACE,
+  type DayOverride, type DaySchedule, type PricingSettings, type TimeSegment,
 } from './pricing.ts'
 
 export { PRICING_SETTINGS_NAMESPACE } from './pricing.ts'
@@ -35,7 +35,9 @@ const DayScheduleSchema: z<DaySchedule> = z.object({
   segments: z.array(TimeSegmentSchema),
 })
 
-const DayLinksSchema: z<DayLinks> = z.dict(String)
+const DayOverrideSchema: z<DayOverride> = z.object({
+  segments: z.array(TimeSegmentSchema),
+})
 
 const ModelPriceSchema = z.object({
   inputPeak: z.number().min(0),
@@ -43,16 +45,12 @@ const ModelPriceSchema = z.object({
   outputPeak: z.number().min(0),
 })
 
-const daysSchema = z.object(
-  Object.fromEntries(WEEKDAYS.map(day => [day, DayScheduleSchema])) as Record<keyof typeof DEFAULT_PRICING_SETTINGS.days, z<DaySchedule>>,
-)
-
 /** Durable pricing section schema; also the wire envelope the browser scope validates against. */
 export const PricingSettingsSchema: z<PricingSettings> = z.object({
   currency: z.string().default(DEFAULT_PRICING_SETTINGS.currency),
   models: z.dict(ModelPriceSchema).default(DEFAULT_PRICING_SETTINGS.models),
-  days: daysSchema.default(DEFAULT_PRICING_SETTINGS.days),
-  dayLinks: DayLinksSchema.default(DEFAULT_PRICING_SETTINGS.dayLinks),
+  defaultSchedule: DayScheduleSchema.default(DEFAULT_PRICING_SETTINGS.defaultSchedule),
+  overrides: z.dict(DayOverrideSchema).default(DEFAULT_PRICING_SETTINGS.overrides),
 })
 
 /**

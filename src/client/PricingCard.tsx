@@ -9,7 +9,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 // system, never a value import (client bundle purity gate).
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { WEEKDAYS, type Weekday } from '../pricing.ts'
-import { effectiveDaySchedule, type PricingCardFace } from './pricing-form.ts'
+import type { PricingCardFace } from './pricing-form.ts'
 import type { PricingKey } from './locales.ts'
 import { DayTimeline } from './DayTimeline.tsx'
 import css from './PricingCard.module.css'
@@ -62,75 +62,32 @@ function ModelRow(props: {
   )
 }
 
-/** One day's row: the label, the chain-link, and the timeline. */
-function DayRow(props: {
+/** The day-exception picker: toggle a weekday's override on or off. */
+function DayOverrideToggle(props: {
   day: Weekday
-  segments: { start: string; end: string; multiplier: number }[]
-  followedBy: string | null
+  enabled: boolean
   disabled: boolean
-  t: (key: PricingKey, params?: Record<string, string>) => string
-  onChange(segments: { start: string; end: string; multiplier: number }[]): void
-  onLink(followed: Weekday): void
-  onUnlink(): void
-  /** The day currently being dragged (its chain icon is in flight). */
-  onDragStart(day: Weekday): void
-  onDragEnd(): void
+  t: (key: PricingKey) => string
+  onToggle(enabled: boolean): void
 }) {
-  const { day, segments, followedBy, disabled, t, onChange, onLink, onUnlink, onDragStart, onDragEnd } = props
-  const [dropTarget, setDropTarget] = useState(false)
-
+  const { day, enabled, disabled, t, onToggle } = props
   return (
-    <div className={css.dayRow}>
-      <div className={css.dayHead}>
-        <span className={css.dayName}>{t(`day.${day}`)}</span>
-        {followedBy !== null
-          ? <span className={css.follows}>{t('link.follows', { day: t(`day.${followedBy as Weekday}`) })}</span>
-          : null}
-        {!disabled
-          ? (
-            <button
-              type="button"
-              className={clsx(css.chainButton, followedBy !== null && css.linked, dropTarget && css.dropTarget)}
-              title={followedBy === null
-                ? t('link.self')
-                : t('link.follows', { day: t(`day.${followedBy as Weekday}`) })}
-              draggable={followedBy === null}
-              onDragStart={(event) => {
-                if (followedBy !== null) return
-                event.dataTransfer.setData('text/plain', day)
-                event.dataTransfer.effectAllowed = 'link'
-                onDragStart(day)
-              }}
-              onDragEnd={() => { onDragEnd(); setDropTarget(false) }}
-              onDragOver={(event) => {
-                event.preventDefault()
-                if (followedBy === null) setDropTarget(true)
-              }}
-              onDragLeave={() => { setDropTarget(false) }}
-              onDrop={(event) => {
-                event.preventDefault()
-                setDropTarget(false)
-                const source = event.dataTransfer.getData('text/plain') as Weekday
-                if (source !== day) onLink(source)
-              }}
-              onClick={() => {
-                // A linked day's chain is a disconnect button.
-                if (followedBy !== null) onUnlink()
-              }}
-            >
-              {followedBy === null ? '⛓' : '🔗'}
-            </button>
-          )
-          : null}
-      </div>
-      <DayTimeline segments={segments} disabled={disabled} onChange={onChange} />
-    </div>
+    <button
+      type="button"
+      className={clsx(css.dayToggle, enabled && css.dayToggleOn)}
+      disabled={disabled}
+      aria-pressed={enabled}
+      onClick={() => { onToggle(!enabled) }}
+    >
+      {t(`day.${day}`)}
+    </button>
   )
 }
 
 /**
  * Render the pricing card. The card owns its chrome: a disclosure header,
- * the model price table, and one draggable timeline per day of the week.
+ * the model price table, the default 24-hour timeline, and the per-day
+ * exception toggles (each enabled day shows its own override timeline).
  * @param props - locale copy, the card snapshot, and its form actions.
  * @returns the card, or nothing when the namespace is unavailable.
  */
@@ -139,9 +96,9 @@ export function PricingCard(props: PricingCardProps) {
   const state = props.usePricingCard(snapshot => snapshot)
   const [open, setOpen] = useState(false)
   const [newModel, setNewModel] = useState('')
-  const [draggingDay, setDraggingDay] = useState<Weekday | null>(null)
   if (!state.available) return null
   const blocked = !state.dirty || state.saving
+  const overrideDays = WEEKDAYS.filter(day => state.overrides[day] !== undefined)
   return (
     <li className={clsx(css.card, open && css.cardOpen)}>
       <button
@@ -210,25 +167,61 @@ export function PricingCard(props: PricingCardProps) {
                   </div>
                 )}
             </section>
-            {/* Per-day timelines */}
+            {/* Default timeline */}
             <section className={css.section}>
-              <h3 className={css.sectionTitle}>{t('section.days')}</h3>
-              <p className={css.hint}>{t('section.days.hint')}</p>
-              {WEEKDAYS.map(day => (
-                <DayRow
-                  key={day}
-                  day={day}
-                  segments={effectiveDaySchedule(state.dayLinks, state.days, day).segments}
-                  followedBy={state.dayLinks[day] ?? null}
-                  disabled={!state.writable || (draggingDay !== null && draggingDay !== day)}
-                  t={t}
-                  onChange={(segments) => { props.editDaySegments(day, segments) }}
-                  onLink={(followed) => { props.linkDay(day, followed) }}
-                  onUnlink={() => { props.unlinkDay(day) }}
-                  onDragStart={(source) => { setDraggingDay(source) }}
-                  onDragEnd={() => { setDraggingDay(null) }}
-                />
-              ))}
+              <h3 className={css.sectionTitle}>{t('section.default')}</h3>
+              <p className={css.hint}>{t('section.default.hint')}</p>
+              <DayTimeline
+                segments={state.defaultSchedule.segments}
+                disabled={!state.writable}
+                onChange={(segments) => { props.editDefaultSegments(segments) }}
+              />
+            </section>
+            {/* Per-day exceptions */}
+            <section className={css.section}>
+              <h3 className={css.sectionTitle}>{t('section.overrides')}</h3>
+              <p className={css.hint}>{t('section.overrides.hint')}</p>
+              <div className={css.dayToggles}>
+                {WEEKDAYS.map(day => (
+                  <DayOverrideToggle
+                    key={day}
+                    day={day}
+                    enabled={state.overrides[day] !== undefined}
+                    disabled={!state.writable}
+                    t={t}
+                    onToggle={(enabled) => {
+                      if (enabled) props.addOverride(day)
+                      else props.removeOverride(day)
+                    }}
+                  />
+                ))}
+              </div>
+              {overrideDays.length > 0
+                ? (
+                  <div className={css.overrideList}>
+                    {overrideDays.map(day => (
+                      <div key={day} className={css.overrideRow}>
+                        <div className={css.overrideHead}>
+                          <span className={css.overrideName}>{t(`day.${day}`)}</span>
+                          <button
+                            type="button"
+                            className={css.removeOverride}
+                            disabled={!state.writable}
+                            onClick={() => { props.removeOverride(day) }}
+                          >
+                            {t('override.remove')}
+                          </button>
+                        </div>
+                        <DayTimeline
+                          segments={state.overrides[day]!.segments}
+                          disabled={!state.writable}
+                          onChange={(segments) => { props.editOverrideSegments(day, segments) }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )
+                : null}
             </section>
             <div className={css.footer}>
               {state.failed ? <p className={css.failed} role="status">{t('saveFailed')}</p> : null}
