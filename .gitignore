@@ -61,7 +61,3 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-
-# Local vitest harness config (runs specs against the deepseek-harness workspace)
-vitest.config.ts
-vitest.pricing.local.ts

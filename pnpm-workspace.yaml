@@ -1,2 +1,8 @@
 allowBuilds:
   esbuild: true
+# The dsh release train publishes its whole family in one batch, so the
+# freshness policy rejects a lockfile pinned to a release younger than the
+# cutoff. Profiles that install this plugin already carry these exact
+# versions; excluding the scope keeps a matching local install reproducible.
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/*'

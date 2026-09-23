@@ -1,3 +1,5 @@
+# The bundle layer this package installs into a profile: one row whose entry id
+# is the settings namespace the browser card reads (`PRICING_SETTINGS_NAMESPACE`).
 - insert:
-    - id: ui-pricing
+    - id: pricing
       name: dsh-ui-pricing

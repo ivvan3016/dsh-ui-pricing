@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-dsh 的可自定义费用定价插件：`pricing` settings 段（各模型基准价 + 分时价格倍率）以及 `cost` session projection——它用每个用量样本自身时间戳所处的倍率定价 provider 上报的用量，外加一个 composer-dock 的 **CostLine** 显示所有会话的消费总金额（可就地修正）和实时的 24 小时倍率条。任何内容都不写死：默认段让每天按基准价计价，插件配置卡片让你自定义时段策略——一条默认时间轴适用于每一天、可添加特例天，为每段设置倍率（1.0 为基准价，0.5 即半价），并可逐模型编辑价格。
+dsh 的可自定义费用定价插件：`pricing` settings 段（各模型基准价 + 分时价格倍率）以及 `cost` session projection——它用每个用量样本自身时间戳所处的倍率定价 provider 上报的用量，外加一个 composer-dock 的 **CostLine** 显示所有会话的消费总金额（可就地修正）和实时的 24 小时倍率条。任何内容都不写死：默认段让每天按基准价计价，插件页卡片让你自定义时段策略——一条默认时间轴适用于每一天、可添加特例天，为每段设置倍率（1.0 为基准价，0.5 即半价），并可逐模型编辑价格。
 
 ## Install
 
@@ -23,6 +23,8 @@ allowBuilds:
 
 该 key 与解析出的具体 commit 绑定——仅写包名不会匹配，且只有把依赖更新到更新的 commit 时它才会变化。
 
+安装或更新后需要重启 `dsh web` 进程：客户端插件清单与 projection 注册表都在服务端启动时组装。
+
 ## Uninstall
 
 ```sh
@@ -33,7 +35,7 @@ dsh plugin --profile web remove dsh-ui-pricing
 
 ## Configuration
 
-本包注册 `pricing` settings 命名空间（见 [dsh-settings](../../settings/settings/README.md)）：
+插件 entry 以自身的实时 Config 声明 `pricing` settings 段（见 [dsh-settings](../../settings/settings/README.md)）；段名就是 bundle patch 挂载的行 id（`pricing`）：
 
 | 字段 | 默认 | 含义 |
 |---|---|---|
@@ -43,9 +45,7 @@ dsh plugin --profile web remove dsh-ui-pricing
 | `overrides` | `{}` | 特例天：出现在这里的天使用自己的 `TimeSegment[]`，覆盖默认时段。 |
 | `manualSpend` | `0` | 手动修正增量，叠加到自动估算的总消费上：正值上调、负值下调。CostLine 上就地修正总消费时写入（`修正总额 − 自动金额`），显示为 `自动 + manualSpend`，后续用量继续在修正值上累加。 |
 
-**设置** → **插件** → **插件配置** 中会显示"价格设置"卡片：一个逐模型价格表（模型行来自 wire 的 `llm.models()` 目录，因此会显示部署实际拥有的模型）、一条**默认时间轴**（适用于每一天）和**特例天开关**——开启某天后该天拥有自己的时间轴，覆盖默认时段（例如休息日全天谷价）。在时间轴上：单击段内分割新时段、拖动分割点调整位置（拖动不会新增）、点击 × 删除，并可直接输入每段的倍率。
-
-`cost` projection 在段变更时重新注册，用新价格与时段重放持久日志。
+侧边栏 **插件** → **`dsh-ui-pricing`** → **`pricing`** 行的配置页中会显示价格设置卡片：逐模型价格表会自动列出**客户端模型列表里的每一个模型**（与 composer 模型选择器读的是同一份宿主目录，并在 adapter、设置文档或凭据变化时刷新），其中尚未定价的模型标为 **未定价**；已定价的模型即使对应路由下线也仍留在表里，而"添加模型"一行用于补充列表里没有的 id。下方是一条**默认时间轴**（适用于每一天）和**特例天开关**——开启某天后该天拥有自己的时间轴，覆盖默认时段（例如休息日全天谷价）。在时间轴上：单击段内分割新时段、拖动分割点调整位置（拖动不会新增）、点击 × 删除，并可直接输入每段的倍率。
 
 ## Cost line
 
@@ -53,7 +53,7 @@ dsh plugin --profile web remove dsh-ui-pricing
 
 ## Session projection
 
-当组合提供 `ctx.sessionProjections` 时，本包注册 `cost` 单元：对每个会话日志做持久折叠，按样本时间戳所处倍率定价每个 provider 用量样本，并按模型 × 倍率汇总。同一 `(turn, step)` 的样本替换而非重复计数；同一 step 的后续 chunk 会先减去较早的贡献。视图对每个活跃会话的折叠求和——这正是 CostLine 显示的值——并携带 `{ amount, currency }`；`models` 表中缺失的模型计为零。段变更时以递增的 state version 重新注册单元，丢弃过期的持久检查点并整体重算。
+当组合提供 `ctx.sessionProjections` 时，本包注册 `cost` 单元：对每个会话日志做持久折叠，按样本时间戳所处倍率定价每个 provider 用量样本，并按模型 × 倍率汇总。已结算的 assistant message 贡献自身用量（或它紧凑流中最后一个 usage chunk），同一 `(turn, step)` 的失败尝试会被替换而非重复计数。视图对每个活跃会话的折叠求和——这正是 CostLine 显示的值——并携带 `{ amount, currency }`；`models` 表中缺失的模型计为零。段每发布一个新 revision 就以递增的 state version 重新注册单元，丢弃过期的持久检查点并整体重算。
 
 ## Model Experience
 
@@ -65,7 +65,9 @@ dsh plugin --profile web remove dsh-ui-pricing
 
 ## Known Limitations and Deferred Work
 
-- **未列出的模型计为零** —— `models` 表中缺失的模型 id 对投影无贡献；在卡片中添加入口即可定价。
+- **未列出的模型计为零** —— `models` 表中缺失的模型 id 对投影无贡献，因此标着**未定价**的行在你填入价格前一直按 0 计。若宿主还没有任何可路由模型（未配置 provider），表里只会列出你已经定价的行。
+- **设置段就是宿主 entry** —— 一个 profile 为每个活跃 entry 提供一个实时 Config，因此这些偏好位于 bundle patch 挂载的 entry id（`pricing`）之下。改写该行 id、或以其它 id 挂载本包，都会让该段与已存值失联；卡片同样按 `<包名>#<行 id>` 作为键。
 - **时间轴分割点按整点吸附** —— 拖动与点击插入的是整点对齐的边界；分钟级时段需在设置文档中编辑。
 - **特例天是拷贝而非引用** —— 开启某天特例时会复制当时的默认时段；之后修改默认时段不会同步进已存在的特例。
 - **总额随当前会话刷新** —— 读数在当前会话产生事件（或重新打开）时重读该会话的投影快照，其他会话新增的费用会在下一次这样的快照中体现，而非即时更新。
+- **发布的声明文件沿用源码扩展名** —— `lib/types` 与 `src/` 同构，因此 `.d.ts` 内部的相对引用写成 `./pricing.ts`，只有在开启 `allowImportingTsExtensions` 的 TypeScript 工作区里才能解析，包里没有与它们并列的 `.js`。dsh 运行时只读取 `lib/index.js` 与 `lib/client.js`，不会读取这些类型。

@@ -1,15 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Volatile } from '@deepseek-ai/cordis'
 import { createMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
-import { apply, PRICING_SETTINGS_NAMESPACE, PricingSettingsSchema } from '../src/index.ts'
+import { apply, type Config } from '../src/index.ts'
 import { costProjectionDefinition } from '../src/cost-projection.ts'
 import type { CostProjection } from '../src/projection.ts'
-import { DEFAULT_PRICING_SETTINGS, type PricingSettings } from '../src/pricing.ts'
+import { DEFAULT_PRICING_SETTINGS, PRICING_SETTINGS_NAMESPACE, type PricingSettings } from '../src/pricing.ts'
 
 /** Tuesday 09:00–12:00 Beijing at the given multiplier; 2026-08-18 is a Tuesday. */
 function tuesdayPolicy(multiplier: number): PricingSettings {
@@ -49,6 +48,7 @@ function usageEvent(
         content: [],
         source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       }),
+      stream: [],
       usage,
     },
   }
@@ -107,19 +107,23 @@ describe('cost projection fold', () => {
     expect(halfOf({ inputTokens: 0, outputTokens: 1_000_000 })).toBeCloseTo(4.5, 10) // 9.0 × 0.5
   })
 
-  it('replaces a chunk sample when the finalized message reports the same step', () => {
+  it('replaces a failed attempt sample when the step settles with its own usage', () => {
     const f = fold(tuesdayPolicy(0.5))
     f.apply(headerEvent('deepseek-v4-flash', 1))
-    const chunk: SessionEvent<'assistant/chunk'> = {
-      type: 'assistant/chunk', seq: 2, time: IN_SEGMENT_MS,
-      data: { turn: 1, step: 1, chunk: { type: 'usage', usage: FLASH_USAGE } },
+    const attempt: SessionEvent<'assistant/attempt'> = {
+      type: 'assistant/attempt', seq: 2, time: IN_SEGMENT_MS,
+      data: {
+        turn: 1, step: 1,
+        stream: [{ type: 'chunk', time: IN_SEGMENT_MS, chunk: { type: 'usage', usage: FLASH_USAGE } }],
+      },
     }
-    f.apply(chunk)
+    f.apply(attempt)
     const first = f.view().amount
+    expect(first).toBeCloseTo((3.6 + 0.05 + 0.9) * 0.5, 10)
     const finalUsage: TokenUsage = { ...FLASH_USAGE, outputTokens: 200_000 }
     f.apply(usageEvent(3, IN_SEGMENT_MS, 1, 1, finalUsage))
     const second = f.view().amount
-    // The final sample replaces the chunk's contribution, not adds to it.
+    // The settlement replaces the attempt's contribution for that step, not adds to it.
     expect(second).toBeCloseTo(first + 0.45, 10) // extra 0.1M output × 9.0 × 0.5
   })
 
@@ -168,22 +172,41 @@ describe('cost projection fold', () => {
   })
 })
 
-class MemorySettings extends SettingsProvider {
-  readonly writable = true
-  protected load(): Promise<Record<string, unknown>> { return Promise.resolve({}) }
-  protected persist(_ns: SettingsNamespace, _section: Record<string, unknown>): Promise<void> {
-    return Promise.resolve()
+/** A structurally valid live Config over one mutable policy, as the Host projects it. */
+function liveConfig(initial: PricingSettings = DEFAULT_PRICING_SETTINGS): {
+  config: Config
+  set(next: PricingSettings): void
+} {
+  let value = initial
+  const ref = <T,>(read: () => T): Volatile<T> => ({ get: read })
+  return {
+    config: {
+      currency: ref(() => value.currency),
+      models: ref(() => value.models),
+      defaultSchedule: ref(() => value.defaultSchedule),
+      overrides: ref(() => value.overrides),
+      manualSpend: ref(() => value.manualSpend ?? 0),
+    },
+    set: (next) => { value = next },
   }
 }
 
-async function harness(withSettings: boolean): Promise<{ ctx: Context; session: Session }> {
+/** Publish one new revision of the pricing section, as the Host settings service does. */
+function publish(ctx: Context): void {
+  ctx.emit('settings/document-updated', PRICING_SETTINGS_NAMESPACE as never, 1)
+}
+
+async function harness(initial: PricingSettings = DEFAULT_PRICING_SETTINGS): Promise<{
+  ctx: Context
+  session: Session
+  live: ReturnType<typeof liveConfig>
+}> {
   const ctx = new Context()
-  if (withSettings) await ctx.plugin(MemorySettings).await()
   await ctx.plugin(SessionStore).await()
   await ctx.plugin(SessionProjectionRegistry).await()
-  const fiber = ctx.plugin({ apply })
-  await fiber.await()
-  return { ctx, session: ctx.sessions.create() }
+  const live = liveConfig(initial)
+  await ctx.plugin({ apply: (pluginCtx: Context) => { apply(pluginCtx, live.config) } }).await()
+  return { ctx, session: ctx.sessions.create(), live }
 }
 
 function appendStep(session: Session, turn: number, step: number, model: string, usage: TokenUsage): void {
@@ -199,8 +222,11 @@ function appendStep(session: Session, turn: number, step: number, model: string,
       content: [],
       source: { kind: 'model', provider: 'deepseek-official', model },
     }),
+    // The settlement carries its own compact stream; provider accounting rides
+    // `usage` and needs no source-event references.
+    stream: [],
     usage,
-  }, { surfaceOp: 'append', sourceEventSeqs: [] })
+  }, { surfaceOp: 'append' })
   session.append('step/end', { turn, step })
 }
 
@@ -218,7 +244,7 @@ describe('pricing plugin', () => {
   it('registers the cost projection with the official defaults', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(IN_SEGMENT_MS)
-    const { ctx, session } = await harness(false)
+    const { ctx, session } = await harness()
     appendStep(session, 1, 1, 'deepseek-v4-flash', {
       inputTokens: 1_000_000, outputTokens: 0,
     })
@@ -230,7 +256,7 @@ describe('pricing plugin', () => {
   it('sums every live session into the displayed total', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(IN_SEGMENT_MS)
-    const { ctx, session } = await harness(false)
+    const { ctx, session } = await harness()
     const other = ctx.sessions.create()
     appendStep(session, 1, 1, 'deepseek-v4-flash', {
       inputTokens: 1_000_000, outputTokens: 0,
@@ -243,53 +269,55 @@ describe('pricing plugin', () => {
     expect(projectedCost(ctx, other).amount).toBeCloseTo(6.0, 10)
   })
 
-  it('reprices the log when the multiplier changes (re-registration refold)', async () => {
+  it('reprices the log when the published section changes (re-registration refold)', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(IN_SEGMENT_MS)
-    const { ctx, session } = await harness(true)
+    const { ctx, session, live } = await harness()
     appendStep(session, 1, 1, 'deepseek-v4-flash', {
       inputTokens: 1_000_000, outputTokens: 0,
     })
     expect(projectedCost(ctx, session).amount).toBeCloseTo(3.0, 10)
 
-    await ctx.settings.update(settingsNamespace(PRICING_SETTINGS_NAMESPACE), {
-      overrides: {
-        tuesday: { segments: [{ start: '09:00', end: '12:00', multiplier: 0.5 }] },
-      },
-    })
+    live.set(tuesdayPolicy(0.5))
+    publish(ctx)
     // The sample sits inside the new 09:00–12:00 window (10:00 Beijing).
     expect(projectedCost(ctx, session).amount).toBeCloseTo(1.5, 10)
 
-    await ctx.settings.update(settingsNamespace(PRICING_SETTINGS_NAMESPACE), {
-      overrides: {
-        tuesday: { segments: [{ start: '09:00', end: '12:00', multiplier: 1 }] },
-      },
-    })
+    live.set(tuesdayPolicy(1))
+    publish(ctx)
     expect(projectedCost(ctx, session).amount).toBeCloseTo(3.0, 10)
   })
 
-  it('ignores settings updates for other namespaces', async () => {
+  it('re-reads prices from the same section revision', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(IN_SEGMENT_MS)
-    const { ctx } = await harness(true)
-    ctx.settings.register(settingsNamespace('other'), PricingSettingsSchema)
-    const register = vi.spyOn(ctx.sessionProjections, 'register')
-    await ctx.settings.update(settingsNamespace('other'), { currency: 'USD' })
-    // A different namespace's update must not re-register the cost unit.
-    expect(register).not.toHaveBeenCalled()
-    await ctx.settings.update(settingsNamespace(PRICING_SETTINGS_NAMESPACE), {
+    const { ctx, session, live } = await harness()
+    appendStep(session, 1, 1, 'deepseek-v4-flash', {
+      inputTokens: 1_000_000, outputTokens: 0,
+    })
+    live.set({
+      ...DEFAULT_PRICING_SETTINGS,
       models: { 'deepseek-v4-flash': { inputPeak: 6, cacheHitPeak: 0.2, outputPeak: 18 } },
     })
+    publish(ctx)
+    expect(projectedCost(ctx, session).amount).toBeCloseTo(6.0, 10)
+  })
+
+  it('ignores revisions of other entries', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(IN_SEGMENT_MS)
+    const { ctx } = await harness()
+    const register = vi.spyOn(ctx.sessionProjections, 'register')
+    ctx.emit('settings/document-updated', 'other' as never, 1)
+    // A different entry's revision must not re-register the cost unit.
+    expect(register).not.toHaveBeenCalled()
+    publish(ctx)
     expect(register).toHaveBeenCalledTimes(1)
   })
 
-  it('stays at the defaults when no settings service is composed', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(IN_SEGMENT_MS)
-    const { ctx, session } = await harness(false)
-    appendStep(session, 1, 1, 'deepseek-v4-pro', {
-      inputTokens: 1_000_000, outputTokens: 0,
-    })
-    expect(projectedCost(ctx, session).amount).toBeCloseTo(9.0, 10)
+  it('installs nothing without a projection registry', async () => {
+    const ctx = new Context()
+    await ctx.plugin({ apply: (pluginCtx: Context) => { apply(pluginCtx, liveConfig().config) } }).await()
+    expect(ctx.get('sessionProjections')).toBeUndefined()
   })
 })

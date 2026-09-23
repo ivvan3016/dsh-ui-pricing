@@ -1,7 +1,7 @@
 {
   "name": "dsh-ui-pricing",
-  "description": "User-configurable cost pricing for dsh: per-model list prices and per-day-of-week time segments with price multipliers, edited through a Plugins-settings card",
-  "version": "0.1.3",
+  "description": "User-configurable cost pricing for dsh: per-model list prices and per-day-of-week time segments with price multipliers, edited through a Plugins-page card, plus a composer-dock cost readout",
+  "version": "0.2.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -10,15 +10,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./invariant": {
-      "types": "./lib/types/invariant.d.ts",
-      "default": "./lib/invariant.js"
-    },
     "./client": {
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
-    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -27,19 +22,22 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-settings-plugins",
-        "@deepseek-ai/dsh-api-remotes"
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-settings"
       ],
       "platform": "web"
     }
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "prepare": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs && tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "test": "vitest run"
   },
   "license": "MIT",
   "author": "ivvan3016 <1615829059ivan@gmail.com>",
@@ -51,30 +49,42 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-api-remotes": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-settings-plugins": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-session": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-session-projection": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.8"
+    "@deepseek-ai/cordis": "~4.0.4"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/cosmokit": "~1.8.5",
+    "@deepseek-ai/dsh-api-remotes": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-api-session-controller": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-locale": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-store": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-ui-session": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-llm": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-session": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-session-projection": "0.1.7-alpha.2",
+    "@deepseek-ai/dsh-settings": "0.1.7-alpha.2",
+    "@deepseek-ai/schemastery": "~3.18.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "~18.3.1",
+    "clsx": "^2.1.1",
     "esbuild": "^0.25.0",
-    "@deepseek-ai/schemastery": "^3.18.1",
-    "clsx": "^2.0.0",
+    "jsdom": "^29.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.3.1",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.8",
     "zod": "^4.4.3"
   },
+  "dependencies": {},
   "files": [
     "cordis.patch.yml",
     "lib/index.js",
-    "lib/invariant.js",
     "lib/client.js",
     "lib/types/**/*.d.ts"
   ]

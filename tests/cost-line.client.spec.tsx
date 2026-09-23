@@ -16,16 +16,21 @@ import {
   parseClock, settingsInOffset, weekdayAt,
   type DaySchedule, type PricingSettings, type TimeSegment, type Weekday,
 } from '../src/pricing.ts'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import {
   CostLine, formatAmount, formatCost, formatFactor,
   type CostCorrectionState, type CostLineProps,
 } from '../src/client/CostLine.tsx'
 import { zh } from '../src/client/locales.ts'
 
-// The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
-const t: CostLineProps['t'] = makeTranslate(zh, commonZh)
+/**
+ * The framework-injected locale seat, resolved over this package's zh
+ * dictionary with `{param}` interpolation (the default locale).
+ */
+const t = ((key: string, params?: Record<string, string | number>): string => {
+  const template = (zh as Record<string, string>)[key] ?? key
+  if (params === undefined) return template
+  return template.replace(/\{(\w+)\}/g, (whole, name: string) => (name in params ? String(params[name]) : whole))
+}) as CostLineProps['t']
 
 /** Correction-write spy, reset per test. */
 const correctSpend = vi.fn()
@@ -98,7 +103,7 @@ function makeProps(over: {
     useCorrection: ((selector: (value: CostCorrectionState) => unknown) => selector({ writable })) as unknown as CostLineProps['useCorrection'],
     correctSpend,
     t,
-  }
+  } as unknown as CostLineProps
 }
 
 afterEach(() => {

@@ -20,8 +20,11 @@ import {
   BEIJING_UTC_OFFSET_MINUTES, formatClock, minutesInDay, multiplierAt, settingsInOffset,
   type PricingSettings,
 } from '../pricing.ts'
-import type { UseProjection } from '@deepseek-ai/dsh-client-runtime/client'
-import type { PropsLocale, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, HostObservable, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: the conversation SlotMap merge the composer-dock props come from,
+// and the session standard kit (which carries `useProjection`).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import css from './CostLine.module.css'
 
 /** Currency codes with a natural glyph; anything else prefixes the code. */
@@ -77,19 +80,27 @@ export interface CostCorrectionState {
   writable: boolean
 }
 
-/** Props of the dock occupant: the projection seat, the pricing hook, the correction seat, and the locale seat. */
-export interface CostLineProps {
-  /** The framework projection seat (`useProjection('cost')`). */
-  useProjection: UseProjection
-  /** The injected pricing-section hook (bound from the settings mirror). */
-  usePricing: SnapshotSelectorHook<PricingSettings | undefined>
-  /** The injected correction seat: whether the section accepts writes. */
-  useCorrection: SnapshotSelectorHook<CostCorrectionState>
+/** The registration-side face the dock entry injects. */
+export interface CostLineFace {
+  hooks: {
+    /** The live pricing section (undefined until the Host syncs the namespace). */
+    pricing: HostObservable<PricingSettings | undefined>
+    /** Whether the section accepts a correction write. */
+    correction: HostObservable<CostCorrectionState>
+  }
   /** Write a manual-spend correction delta (`corrected total − auto amount`). */
   correctSpend(delta: number): void
-  /** The owning dock's locale seat. */
-  t: PropsLocale<'cost'>['t']
 }
+
+/**
+ * Props of the dock occupant: the session standard kit (which carries
+ * `useProjection('cost')`), the injected pricing and correction hooks, the
+ * correction verb, and this package's locale seat.
+ */
+export type CostLineProps =
+  PropsRuntime<'conversation.composer.dock'>
+  & InjectFace<CostLineFace>
+  & PropsLocale<'pricing'>
 
 export const CostLine = memo(function CostLine({ useProjection, usePricing, useCorrection, correctSpend, t }: CostLineProps) {
   const cost = useProjection('cost')

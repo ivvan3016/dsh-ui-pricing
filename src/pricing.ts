@@ -113,8 +113,22 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
 /** Beijing has no DST; the official peak window is defined in UTC+8. */
 export const BEIJING_UTC_OFFSET_MINUTES = 480
 
-/** Settings namespace owning the durable pricing section. */
+/**
+ * Settings namespace owning the durable pricing section. A dsh profile serves
+ * one settings section per active plugin entry, keyed by that entry's id, so
+ * this string is the row id the bundle patch mounts (`cordis.patch.yml`).
+ */
 export const PRICING_SETTINGS_NAMESPACE = 'pricing'
+
+/** Profile package whose bundle patch mounts this plugin. */
+export const PRICING_PACKAGE_NAME = 'dsh-ui-pricing'
+
+/**
+ * Key the Plugins page looks this row's configuration up under: the page keys
+ * a row's page by `<bundle package name>#<row id>`, and the row id is the
+ * settings namespace.
+ */
+export const PRICING_ROW_CONFIG_KEY = `${PRICING_PACKAGE_NAME}#${PRICING_SETTINGS_NAMESPACE}`
 
 /** The priced token buckets (cache-write rides the cache-miss rate). */
 export interface PricedBuckets {

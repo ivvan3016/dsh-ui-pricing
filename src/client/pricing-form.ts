@@ -1,22 +1,26 @@
 /**
- * The pricing card's staged form over the `pricing` settings namespace:
+ * The pricing card's staged form over the `pricing` entry's live Config:
  * model list prices, the default per-day time policy (one global timeline),
- * and per-day overrides. The model list is seeded from the wire `llm.models()`
- * catalog so the card covers whatever models the deployment actually has,
- * while prices stay editable per model. The form mirrors the
- * plugin-configuration CardForm: staged edits, override markers by user-layer
- * presence, reset-as-clear, and one revision-fenced save.
+ * and per-day overrides. The model list is seeded from the Host's session
+ * model catalogue so the card covers whatever models the deployment actually
+ * serves, while prices stay editable per model. The form mirrors the shared
+ * configuration forms: staged edits, override markers by user-layer presence,
+ * and one revision-fenced save.
  */
 
-import type {
-  SettingsScope, SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { ModelCatalog, RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   DEFAULT_PRICING_SETTINGS, emptyDaySchedule, WEEKDAYS,
   type DaySchedule, type ModelPrice, type PricingSettings, type TimeSegment, type Weekday,
 } from '../pricing.ts'
+
+/** The wire face the card reads the deployment's model catalogue through. */
+export interface ModelCatalogSource {
+  /** @returns the provider-grouped model catalogue, or the remote failure. */
+  modelCatalog(): Promise<RemoteResult<ModelCatalog>>
+}
 
 /** The card's editable surface. */
 export interface PricingCardState {
@@ -32,7 +36,7 @@ export interface PricingCardState {
   failed: boolean
   /** Model discovery status: 'loading' | 'ready' | 'error'. */
   modelsStatus: 'loading' | 'ready' | 'error'
-  /** Model ids discovered from the wire, in provider order. */
+  /** Model ids discovered from the Host catalogue, in provider order. */
   modelIds: string[]
   /** Per-model list prices keyed by model id. */
   models: Record<string, ModelPrice>
@@ -80,8 +84,8 @@ interface Draft {
 }
 
 /**
- * Bridges the `pricing` scope onto the card's staged form and the wire model
- * discovery onto the model rows. The store is created once so the renderer's
+ * Bridges the `pricing` form onto the card's staged form and the Host model
+ * catalogue onto the model rows. The store is created once so the renderer's
  * hook binding keeps one stable source across re-registrations.
  */
 export class PricingCardController {
@@ -95,18 +99,18 @@ export class PricingCardController {
   private modelsStatus: 'loading' | 'ready' | 'error' = 'loading'
 
   /**
-   * @param scope - the bound settings scope for the `pricing` namespace.
-   * @param api - the wire face used to discover the model list.
+   * @param form - the Host entry's shared configuration form.
+   * @param catalog - the wire face used to discover the model list.
    */
   constructor(
-    private readonly scope: SettingsScope<PricingSettings>,
-    private readonly api: Pick<IApiClient, 'llm'>,
+    private readonly form: ConfigForm<PricingSettings>,
+    private readonly catalog: ModelCatalogSource,
   ) {
     this.draft = this.seed()
     this.store = createSnapshotStore(this.projection())
     this.listeners.add(() => { this.store.set(this.projection()) })
-    scope.subscribe(() => { this.rebase(); this.publish() })
-    void this.discoverModels()
+    form.subscribe(() => { this.rebase(); this.publish() })
+    this.refreshCatalog()
   }
 
   /** Build the face the card's slot registration injects. */
@@ -125,10 +129,14 @@ export class PricingCardController {
     }
   }
 
-  /** Seed the draft from the scope's current section or the defaults. */
+  /** Re-read the Host model catalogue: adapters and stored routes can change. */
+  refreshCatalog(): void {
+    void this.discoverModels()
+  }
+
+  /** Seed the draft from the form's current section or the defaults. */
   private seed(): Draft {
-    const snapshot = this.scope.getSnapshot()
-    const value = snapshot.value ?? DEFAULT_PRICING_SETTINGS
+    const value = this.form.getSnapshot().value ?? DEFAULT_PRICING_SETTINGS
     return {
       models: { ...(value.models ?? {}) },
       defaultSchedule: value.defaultSchedule ?? emptyDaySchedule(),
@@ -142,13 +150,13 @@ export class PricingCardController {
     this.draft = this.seed()
   }
 
-  /** Query the wire for the configured providers' models. */
+  /** Query the Host for the models its routable providers serve. */
   private async discoverModels(): Promise<void> {
     try {
-      const response = await this.api.llm.models({})
-      if (!response.result.ok) throw new Error(response.result.error.message)
+      const response = await this.catalog.modelCatalog()
+      if (!response.ok) throw new Error(response.error.message)
       const ids: string[] = []
-      for (const group of response.result.value.groups) {
+      for (const group of response.value.groups) {
         for (const model of group.models) {
           if (model.id !== '' && !ids.includes(model.id)) ids.push(model.id)
         }
@@ -180,8 +188,9 @@ export class PricingCardController {
   }
 
   private editModelPrice(model: string, bucket: 'inputPeak' | 'cacheHitPeak' | 'outputPeak', value: number): void {
-    const current = this.draft.models[model]
-    if (current === undefined) return
+    // The card lists every model the Host serves, so a bucket edit may be the
+    // first statement about a model the section does not price yet.
+    const current = this.draft.models[model] ?? { inputPeak: 0, cacheHitPeak: 0, outputPeak: 0 }
     this.edit({ models: { ...this.draft.models, [model]: { ...current, [bucket]: value } } })
   }
 
@@ -211,15 +220,20 @@ export class PricingCardController {
     this.saving = true
     this.failed = false
     this.publish()
+    // The Host fences each write on the revision it published: `false` means it
+    // refused (or skipped) the write, and a transport failure rejects. Either
+    // way the draft stays so the user can correct it.
+    let landed = true
     try {
-      await this.scope.set('models', this.draft.models)
-      await this.scope.set('defaultSchedule', this.draft.defaultSchedule)
-      await this.scope.set('overrides', this.draft.overrides)
-      this.staged.clear()
+      landed = (await this.form.set('models', this.draft.models)) && landed
+      landed = (await this.form.set('defaultSchedule', this.draft.defaultSchedule)) && landed
+      landed = (await this.form.set('overrides', this.draft.overrides)) && landed
     } catch {
-      this.failed = true
+      landed = false
     }
+    if (landed) this.staged.clear()
     this.saving = false
+    this.failed = !landed
     this.publish()
   }
 
@@ -232,7 +246,7 @@ export class PricingCardController {
   }
 
   private projection(): PricingCardState {
-    const snapshot = this.scope.getSnapshot()
+    const snapshot: ConfigFormSnapshot<PricingSettings> = this.form.getSnapshot()
     return {
       available: snapshot.status === 'ready',
       writable: snapshot.writable,

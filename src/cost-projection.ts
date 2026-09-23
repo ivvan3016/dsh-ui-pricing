@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod'
+import { lastAssistantStreamChunk } from '@deepseek-ai/dsh-llm'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
@@ -40,7 +41,7 @@ const lastSampleSchema = z.object({
 const stateSchema = z.object({
   model: z.string(),
   last: lastSampleSchema.nullable(),
-  byModel: z.record(modelRatesSchema),
+  byModel: z.record(z.string(), modelRatesSchema),
 })
 
 const projectionSchema = z.object({
@@ -48,15 +49,21 @@ const projectionSchema = z.object({
   currency: z.string().min(1),
 }).strict()
 
-/** The usage a chunk or finalized message reports for its step, if any. */
-function usageSampleOf(event: SessionEvent): { turn: number; step: number; usage: TokenUsage } | undefined {
-  if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
-    return { turn: event.data.turn, step: event.data.step, usage: event.data.chunk.usage }
-  }
+/**
+ * The usage one durable Assistant settlement or failed attempt reports, when
+ * it reports any. A finalized message may carry it directly; a compacted
+ * stream carries it as its last raw usage chunk.
+ * @param event - one committed session event.
+ * @returns the event's usage sample, or undefined when it reports none.
+ */
+function usageOf(event: SessionEvent): { turn: number; step: number; usage: TokenUsage } | undefined {
   if (event.type === 'assistant/message' && event.data.usage !== undefined) {
     return { turn: event.data.turn, step: event.data.step, usage: event.data.usage }
   }
-  return undefined
+  if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') return undefined
+  const usage = lastAssistantStreamChunk(event.data.stream, 'usage')?.usage
+  if (usage === undefined) return undefined
+  return { turn: event.data.turn, step: event.data.step, usage }
 }
 
 /**
@@ -116,14 +123,20 @@ export function amountOf(state: CostState, settings: PricingSettings): number {
   return amount
 }
 
+/** The client-visible unit form the registry accepts: its wire face is present. */
+type CostUnitDefinition = Omit<ProjectionDefinition<'cost', CostState>, 'wire'> & {
+  wire: NonNullable<ProjectionDefinition<'cost', CostState>['wire']>
+}
+
 /**
  * Build the `cost` projection unit for one pricing policy. The fold is pure:
  * `apply` is deterministic given the captured settings. `view` reports the
  * per-session amount unless an `aggregate` is supplied, in which case it
  * reports the aggregate's total instead — the plugin uses that to surface the
- * spend of every session summed together. When the settings section changes,
- * the plugin disposes this definition and registers a fresh one (bumping
- * `stateVersion`), so the fold replays the durable log under the new policy.
+ * spend of every session summed together. When the Host publishes a new
+ * revision of the section, the plugin disposes this definition and registers a
+ * fresh one (bumping `stateVersion`), so the fold replays the durable log
+ * under the new policy.
  * @param settings - the pricing policy in force for this definition.
  * @param stateVersion - version to invalidate persisted checkpoints from older policies.
  * @param aggregate - optional total for the view; receives the current session's state and returns the displayed amount (default: this session's own amount).
@@ -133,7 +146,7 @@ export function costProjectionDefinition(
   settings: PricingSettings,
   stateVersion: number,
   aggregate?: (state: CostState) => number,
-): ProjectionDefinition<'cost', CostState> {
+): CostUnitDefinition {
   return {
     key: 'cost',
     stateSchema,
@@ -144,7 +157,7 @@ export function costProjectionDefinition(
         return model === state.model ? state : { ...state, model }
       }
 
-      const sample = usageSampleOf(event)
+      const sample = usageOf(event)
       if (sample === undefined) return state
 
       const buckets = pricedBucketsOf(sample.usage)
